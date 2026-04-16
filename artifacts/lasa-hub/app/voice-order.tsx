@@ -6,6 +6,7 @@ import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, TouchableOpa
 import Animated, { FadeIn, FadeInDown, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { checkInventoryAvailability } from "@/context/OrderContext";
+import { useLanguage } from "@/context/LanguageContext";
 import { useColors } from "@/hooks/useColors";
 
 interface ParsedItem { name: string; quantity: string; available: boolean; }
@@ -21,6 +22,7 @@ const SAMPLE_VOICE_ITEMS: ParsedItem[] = [
 export default function VoiceOrderScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { t } = useLanguage();
 
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -32,7 +34,7 @@ export default function VoiceOrderScreen() {
 
   useEffect(() => {
     if (isRecording) {
-      pulseScale.value = withRepeat(withTiming(1.15, { duration: 600 }), -1, true);
+      pulseScale.value = withRepeat(withTiming(1.18, { duration: 550 }), -1, true);
     } else {
       pulseScale.value = withTiming(1, { duration: 200 });
     }
@@ -80,7 +82,7 @@ export default function VoiceOrderScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.foreground }]}>Awaaz mein Bolo</Text>
+        <Text style={[styles.headerTitle, { color: colors.foreground }]}>{t("voiceTitle")}</Text>
         <View style={{ width: 38 }} />
       </Animated.View>
 
@@ -91,12 +93,8 @@ export default function VoiceOrderScreen() {
       >
         {!parsedItems && !isProcessing ? (
           <Animated.View entering={FadeInDown.delay(100).springify()} style={styles.recordSection}>
-            <Text style={[styles.instruction, { color: colors.mutedForeground }]}>
-              Button dabao aur order bolna shuru karo
-            </Text>
-            <Text style={[styles.example, { color: colors.mutedForeground }]}>
-              Jaise: "5 kg dal, 2 liter tel, 3 kg cheeni..."
-            </Text>
+            <Text style={[styles.instruction, { color: colors.mutedForeground }]}>{t("holdToRecord")}</Text>
+            <Text style={[styles.example, { color: colors.mutedForeground }]}>{t("voiceExample")}</Text>
 
             <View style={styles.micContainer}>
               <Animated.View style={pulseStyle}>
@@ -118,31 +116,23 @@ export default function VoiceOrderScreen() {
                   <Text style={[styles.recordingTime, { color: colors.foreground }]}>
                     {formatTime(recordSeconds)}
                   </Text>
-                  <Text style={[styles.recordingHint, { color: colors.mutedForeground }]}>
-                    Bolna band karne ke liye chod do
-                  </Text>
+                  <Text style={[styles.recordingHint, { color: colors.mutedForeground }]}>{t("releaseToStop")}</Text>
                 </Animated.View>
               ) : (
-                <Text style={[styles.micHint, { color: colors.mutedForeground }]}>
-                  Dabaa ke rakhein aur bolein
-                </Text>
+                <Text style={[styles.micHint, { color: colors.mutedForeground }]}>{t("holdToRecord")}</Text>
               )}
             </View>
           </Animated.View>
         ) : isProcessing ? (
           <Animated.View entering={FadeIn.springify()} style={styles.processingSection}>
             <ActivityIndicator color={colors.primary} size="large" />
-            <Text style={[styles.processingText, { color: colors.foreground }]}>
-              AI sun raha hai...
-            </Text>
-            <Text style={[styles.processingSubText, { color: colors.mutedForeground }]}>
-              Items list bana raha hai
-            </Text>
+            <Text style={[styles.processingText, { color: colors.foreground }]}>{t("processing")}</Text>
+            <Text style={[styles.processingSubText, { color: colors.mutedForeground }]}>{t("processingSub")}</Text>
           </Animated.View>
         ) : parsedItems ? (
           <Animated.View entering={FadeInDown.springify()} style={styles.resultSection}>
             <Text style={[styles.resultTitle, { color: colors.foreground }]}>
-              {parsedItems.length} items mile
+              {parsedItems.length} {t("itemsFound")}
             </Text>
             {parsedItems.map((item, i) => (
               <View
@@ -161,14 +151,14 @@ export default function VoiceOrderScreen() {
               onPress={handleProceed}
               activeOpacity={0.85}
             >
-              <Text style={styles.proceedBtnText}>Order Review Karo</Text>
+              <Text style={styles.proceedBtnText}>{t("reviewTitle")}</Text>
               <Feather name="arrow-right" size={20} color="#FFF" />
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => { setParsedItems(null); setRecordSeconds(0); }}
               style={styles.retakeBtn}
             >
-              <Text style={[styles.retakeText, { color: colors.mutedForeground }]}>Dobara Record Karo</Text>
+              <Text style={[styles.retakeText, { color: colors.mutedForeground }]}>{t("reRecord")}</Text>
             </TouchableOpacity>
           </Animated.View>
         ) : null}
@@ -186,7 +176,7 @@ const styles = StyleSheet.create({
   content: { padding: 20, gap: 16 },
   recordSection: { alignItems: "center", gap: 16 },
   instruction: { fontSize: 16, fontFamily: "Inter_500Medium", textAlign: "center" },
-  example: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center", fontStyle: "italic" },
+  example: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center", fontStyle: "italic", paddingHorizontal: 20 },
   micContainer: { alignItems: "center", gap: 20, marginTop: 20 },
   micBtn: { width: 120, height: 120, borderRadius: 60, alignItems: "center", justifyContent: "center", elevation: 8, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 12 },
   recordingInfo: { alignItems: "center", gap: 6 },

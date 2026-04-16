@@ -5,16 +5,19 @@ import { Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StockIndicator } from "@/components/StockIndicator";
+import { useLanguage } from "@/context/LanguageContext";
 import { useOrders, type OrderStatus } from "@/context/OrderContext";
 import { useColors } from "@/hooks/useColors";
+import type { TranslationKey } from "@/constants/translations";
 
-const STATUS_LABELS: Record<OrderStatus, string> = {
-  pending: "Bheja gaya - Confirm ka wait",
-  confirmed: "Supplier ne confirm kiya",
-  out_for_delivery: "Delivery ke raste mein",
-  delivered: "Pahuch gaya",
-  cancelled: "Cancel ho gaya",
+const STATUS_KEYS: Record<OrderStatus, TranslationKey> = {
+  pending: "statusPending",
+  confirmed: "statusConfirmed",
+  out_for_delivery: "statusOutForDelivery",
+  delivered: "statusDelivered",
+  cancelled: "statusCancelled",
 };
+
 const STATUS_COLORS: Record<OrderStatus, string> = {
   pending: "#D97706",
   confirmed: "#2563EB",
@@ -22,6 +25,7 @@ const STATUS_COLORS: Record<OrderStatus, string> = {
   delivered: "#16A34A",
   cancelled: "#DC2626",
 };
+
 const STATUS_ICONS: Record<OrderStatus, string> = {
   pending: "clock",
   confirmed: "check-circle",
@@ -33,13 +37,14 @@ const STATUS_ICONS: Record<OrderStatus, string> = {
 export default function OrderDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { t } = useLanguage();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { orders } = useOrders();
   const order = orders.find(o => o.id === id);
 
   if (!order) return (
     <View style={[styles.root, { backgroundColor: colors.background, justifyContent: "center", alignItems: "center" }]}>
-      <Text style={[styles.errorText, { color: colors.mutedForeground }]}>Order nahi mila</Text>
+      <Text style={[styles.errorText, { color: colors.mutedForeground }]}>{t("noOrders")}</Text>
     </View>
   );
 
@@ -55,7 +60,7 @@ export default function OrderDetailScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.foreground }]}>Order Detail</Text>
+        <Text style={[styles.headerTitle, { color: colors.foreground }]}>{t("orderDetail")}</Text>
         <View style={{ width: 38 }} />
       </Animated.View>
 
@@ -71,7 +76,7 @@ export default function OrderDetailScreen() {
         >
           <Feather name={STATUS_ICONS[order.status] as any} size={24} color={statusColor} />
           <View style={styles.statusTextBlock}>
-            <Text style={[styles.statusMain, { color: statusColor }]}>{STATUS_LABELS[order.status]}</Text>
+            <Text style={[styles.statusMain, { color: statusColor }]}>{t(STATUS_KEYS[order.status])}</Text>
             <Text style={[styles.statusDate, { color: colors.mutedForeground }]}>
               {date.toLocaleDateString("en-IN", { day: "numeric", month: "long" })} • {date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
             </Text>
@@ -88,7 +93,7 @@ export default function OrderDetailScreen() {
               <View style={styles.infoItem}>
                 <Feather name="clock" size={16} color={colors.mutedForeground} />
                 <View>
-                  <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Delivery Time</Text>
+                  <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>{t("deliveryTime")}</Text>
                   <Text style={[styles.infoValue, { color: colors.foreground }]}>{order.deliveryTime}</Text>
                 </View>
               </View>
@@ -97,10 +102,9 @@ export default function OrderDetailScreen() {
               <View style={styles.infoItem}>
                 <Feather name="tag" size={16} color={colors.mutedForeground} />
                 <View>
-                  <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>Total Amount</Text>
+                  <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>{t("totalAmount")}</Text>
                   <Text style={[styles.infoValue, { color: colors.foreground }]}>
-                    ₹{order.totalAmount}
-                    {order.discount ? ` (₹${order.discount} off)` : ""}
+                    ₹{order.totalAmount}{order.discount ? ` (₹${order.discount} off)` : ""}
                   </Text>
                 </View>
               </View>
@@ -120,7 +124,9 @@ export default function OrderDetailScreen() {
         )}
 
         {/* Items */}
-        <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Items ({order.items.length})</Text>
+        <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
+          {t("itemsFound")} ({order.items.length})
+        </Text>
         {order.items.map((item, i) => (
           <Animated.View
             key={i}
@@ -137,7 +143,7 @@ export default function OrderDetailScreen() {
 
         {order.notes && (
           <View style={[styles.noteBox, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
-            <Text style={[styles.noteLabel, { color: colors.mutedForeground }]}>Aapka note:</Text>
+            <Feather name="message-circle" size={15} color={colors.mutedForeground} />
             <Text style={[styles.noteText, { color: colors.foreground }]}>{order.notes}</Text>
           </View>
         )}
@@ -167,7 +173,6 @@ const styles = StyleSheet.create({
   itemName: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   itemQty: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 2 },
   noteBox: { borderRadius: 12, borderWidth: 1, padding: 14, flexDirection: "row", gap: 10, alignItems: "flex-start" },
-  noteLabel: { fontSize: 12, fontFamily: "Inter_500Medium", marginBottom: 2 },
   noteText: { flex: 1, fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 20 },
   errorText: { fontSize: 16, fontFamily: "Inter_400Regular" },
 });

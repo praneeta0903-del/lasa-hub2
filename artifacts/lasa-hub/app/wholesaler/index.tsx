@@ -6,30 +6,32 @@ import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { OrderCard } from "@/components/OrderCard";
 import { useAuth } from "@/context/AuthContext";
+import { useLanguage } from "@/context/LanguageContext";
 import { type Order, useOrders } from "@/context/OrderContext";
 import { useColors } from "@/hooks/useColors";
 
 const STATUS_TABS = ["all", "pending", "confirmed", "out_for_delivery", "delivered"] as const;
-const STATUS_LABELS: Record<string, string> = {
-  all: "Sab",
-  pending: "Nayi",
-  confirmed: "Confirm",
-  out_for_delivery: "Delivery",
-  delivered: "Complete",
-};
 
 export default function WholesalerDashboard() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
+  const { t } = useLanguage();
   const { getOrdersByWholesaler, isLoading, refreshOrders } = useOrders();
   const [activeTab, setActiveTab] = useState<string>("all");
   const [refreshing, setRefreshing] = useState(false);
 
   const allOrders = getOrdersByWholesaler(user?.shopName === "Suresh Wholesale" ? "w001" : user?.phone ?? "w001");
   const filtered: Order[] = activeTab === "all" ? allOrders : allOrders.filter(o => o.status === activeTab);
-
   const pendingCount = allOrders.filter(o => o.status === "pending").length;
+
+  const STATUS_LABELS: Record<string, string> = {
+    all: t("allOrders"),
+    pending: t("newOrders"),
+    confirmed: t("confirmed"),
+    out_for_delivery: t("delivery"),
+    delivered: t("complete"),
+  };
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -39,14 +41,13 @@ export default function WholesalerDashboard() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      {/* Header */}
       <Animated.View
         entering={FadeInDown.delay(50).springify()}
         style={[styles.header, { backgroundColor: colors.accent, paddingTop: insets.top + (Platform.OS === "web" ? 67 : 16) }]}
       >
         <View style={styles.headerTop}>
           <View>
-            <Text style={styles.headerLabel}>Wholesale Dashboard</Text>
+            <Text style={styles.headerLabel}>{t("wholesaleTitle")}</Text>
             <Text style={styles.headerShop}>{user?.shopName ?? "Aapki Dukaan"}</Text>
           </View>
           <TouchableOpacity onPress={logout} style={styles.logoutBtn}>
@@ -57,13 +58,12 @@ export default function WholesalerDashboard() {
           <View style={styles.alertBanner}>
             <Feather name="bell" size={14} color={colors.primary} />
             <Text style={[styles.alertText, { color: colors.primary }]}>
-              {pendingCount} naya order aaya hai
+              {pendingCount} {t("newAlert")}
             </Text>
           </View>
         )}
       </Animated.View>
 
-      {/* Tabs */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -98,19 +98,15 @@ export default function WholesalerDashboard() {
       ) : filtered.length === 0 ? (
         <View style={styles.centered}>
           <Feather name="inbox" size={52} color={colors.mutedForeground} />
-          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Koi order nahi</Text>
-          <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>
-            Jab kirana order karega, yahan dikhega
-          </Text>
+          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>{t("noOrdersWholesale")}</Text>
+          <Text style={[styles.emptySub, { color: colors.mutedForeground }]}>{t("noOrdersWholesaleSub")}</Text>
         </View>
       ) : (
         <ScrollView
           style={styles.list}
           contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 40 }]}
           showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} />
-          }
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} />}
         >
           {filtered.map((order, i) => (
             <Animated.View key={order.id} entering={FadeInDown.delay(i * 50).springify()}>
@@ -118,6 +114,7 @@ export default function WholesalerDashboard() {
                 order={order}
                 onPress={() => router.push(`/wholesaler/order/${order.id}` as any)}
                 variant="wholesaler"
+                language={t}
               />
             </Animated.View>
           ))}

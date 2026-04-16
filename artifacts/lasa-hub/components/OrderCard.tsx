@@ -3,19 +3,21 @@ import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useColors } from "@/hooks/useColors";
 import type { Order, OrderStatus } from "@/context/OrderContext";
+import type { TranslationKey } from "@/constants/translations";
 
 interface Props {
   order: Order;
   onPress: () => void;
   variant?: "kirana" | "wholesaler";
+  language?: (key: TranslationKey) => string;
 }
 
-const STATUS_LABELS: Record<OrderStatus, string> = {
-  pending: "Bheja gaya",
-  confirmed: "Confirm",
-  out_for_delivery: "Raste mein",
-  delivered: "Pahuch gaya",
-  cancelled: "Cancel",
+const STATUS_KEYS: Record<OrderStatus, TranslationKey> = {
+  pending: "statusPending",
+  confirmed: "statusConfirmed",
+  out_for_delivery: "statusOutForDelivery",
+  delivered: "statusDelivered",
+  cancelled: "statusCancelled",
 };
 
 const STATUS_COLORS: Record<OrderStatus, string> = {
@@ -26,10 +28,10 @@ const STATUS_COLORS: Record<OrderStatus, string> = {
   cancelled: "#DC2626",
 };
 
-export function OrderCard({ order, onPress, variant = "kirana" }: Props) {
+export function OrderCard({ order, onPress, variant = "kirana", language }: Props) {
   const colors = useColors();
   const statusColor = STATUS_COLORS[order.status];
-  const statusLabel = STATUS_LABELS[order.status];
+  const statusLabel = language ? language(STATUS_KEYS[order.status]) : STATUS_KEYS[order.status];
   const date = new Date(order.createdAt);
   const timeStr = date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
   const dateStr = date.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
@@ -63,9 +65,7 @@ export function OrderCard({ order, onPress, variant = "kirana" }: Props) {
           {order.items.map(i => i.name).join(", ")}
         </Text>
         {order.totalAmount ? (
-          <Text style={[styles.amount, { color: colors.foreground }]}>
-            ₹{order.totalAmount}
-          </Text>
+          <Text style={[styles.amount, { color: colors.foreground }]}>₹{order.totalAmount}</Text>
         ) : null}
       </View>
     </TouchableOpacity>
@@ -73,13 +73,7 @@ export function OrderCard({ order, onPress, variant = "kirana" }: Props) {
 }
 
 const styles = StyleSheet.create({
-  card: {
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 14,
-    marginBottom: 10,
-    gap: 10,
-  },
+  card: { borderRadius: 14, borderWidth: 1, padding: 14, marginBottom: 10, gap: 10 },
   top: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
   iconBox: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },

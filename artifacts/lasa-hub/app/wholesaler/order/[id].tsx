@@ -6,16 +6,24 @@ import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, Text, TextI
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StockIndicator } from "@/components/StockIndicator";
+import { useLanguage } from "@/context/LanguageContext";
 import { useOrders, type OrderStatus } from "@/context/OrderContext";
 import { useColors } from "@/hooks/useColors";
 
-const DELIVERY_TIMES = ["Kal Subah 9 AM", "Kal Dopahar 12 PM", "Kal Sham 5 PM", "Parson Subah 9 AM", "Abhi - 2 ghante mein"];
+const DELIVERY_TIMES = [
+  "Tomorrow 9 AM",
+  "Tomorrow 12 PM",
+  "Tomorrow 5 PM",
+  "Day after 9 AM",
+  "Within 2 hours",
+];
 
 export default function WholesalerOrderDetail() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { orders, updateOrder } = useOrders();
+  const { t } = useLanguage();
   const order = orders.find(o => o.id === id);
 
   const [totalAmount, setTotalAmount] = useState(order?.totalAmount?.toString() ?? "");
@@ -26,7 +34,9 @@ export default function WholesalerOrderDetail() {
 
   if (!order) return (
     <View style={[styles.root, { backgroundColor: colors.background, justifyContent: "center", alignItems: "center" }]}>
-      <Text style={[{ color: colors.mutedForeground, fontFamily: "Inter_400Regular", fontSize: 16 }]}>Order nahi mila</Text>
+      <Text style={[{ color: colors.mutedForeground, fontFamily: "Inter_400Regular", fontSize: 16 }]}>
+        {t("noOrders")}
+      </Text>
     </View>
   );
 
@@ -37,11 +47,11 @@ export default function WholesalerOrderDetail() {
 
   const handleConfirmOrder = async () => {
     if (!totalAmount) {
-      Alert.alert("Amount daalo", "Total amount fill karo");
+      Alert.alert(t("fillAmount"), t("fillAmount"));
       return;
     }
     if (!deliveryTime) {
-      Alert.alert("Delivery time daalo", "Delivery time select karo");
+      Alert.alert(t("selectDelivery"), t("selectDelivery"));
       return;
     }
     setIsSaving(true);
@@ -55,9 +65,9 @@ export default function WholesalerOrderDetail() {
     setIsSaving(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Alert.alert(
-      "Order Confirm Ho Gaya!",
-      `${order.shopName} ko SMS bhej diya gaya`,
-      [{ text: "Theek Hai", onPress: () => router.back() }]
+      t("orderConfirmed"),
+      `${order.shopName} ${t("smsSent")}`,
+      [{ text: t("ok"), onPress: () => router.back() }]
     );
   };
 
@@ -84,8 +94,7 @@ export default function WholesalerOrderDetail() {
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Items */}
-        <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Order Items</Text>
+        <Text style={[styles.sectionTitle, { color: colors.foreground }]}>{t("orderItems")}</Text>
         {order.items.map((item, i) => (
           <Animated.View
             key={i}
@@ -107,13 +116,12 @@ export default function WholesalerOrderDetail() {
           </View>
         )}
 
-        {/* Fill Details */}
         {isEditable && (
           <>
-            <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Order Confirm Karo</Text>
+            <Text style={[styles.sectionTitle, { color: colors.foreground }]}>{t("confirmOrder")}</Text>
             <View style={styles.fieldRow}>
               <View style={styles.fieldHalf}>
-                <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Total Amount (₹)</Text>
+                <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>{t("totalAmount")} (₹)</Text>
                 <TextInput
                   style={[styles.fieldInput, { borderColor: colors.border, backgroundColor: colors.card, color: colors.foreground }]}
                   placeholder="1200"
@@ -136,26 +144,26 @@ export default function WholesalerOrderDetail() {
               </View>
             </View>
 
-            <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Delivery Time</Text>
+            <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>{t("deliveryTime")}</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={styles.timePills}>
-              {DELIVERY_TIMES.map(t => (
+              {DELIVERY_TIMES.map(timeOpt => (
                 <TouchableOpacity
-                  key={t}
+                  key={timeOpt}
                   style={[styles.timePill, {
-                    backgroundColor: deliveryTime === t ? colors.primary : colors.card,
-                    borderColor: deliveryTime === t ? colors.primary : colors.border,
+                    backgroundColor: deliveryTime === timeOpt ? colors.primary : colors.card,
+                    borderColor: deliveryTime === timeOpt ? colors.primary : colors.border,
                   }]}
-                  onPress={() => setDeliveryTime(t)}
+                  onPress={() => setDeliveryTime(timeOpt)}
                 >
-                  <Text style={[styles.timePillText, { color: deliveryTime === t ? "#FFF" : colors.foreground }]}>{t}</Text>
+                  <Text style={[styles.timePillText, { color: deliveryTime === timeOpt ? "#FFF" : colors.foreground }]}>{timeOpt}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
 
-            <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Note (Optional)</Text>
+            <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>{t("deliveryNote")}</Text>
             <TextInput
               style={[styles.notesInput, { borderColor: colors.border, backgroundColor: colors.card, color: colors.foreground }]}
-              placeholder="Kuch aur kehna hai? Jaise: payment terms..."
+              placeholder={t("noteHint")}
               placeholderTextColor={colors.mutedForeground}
               multiline
               value={invoiceNote}
@@ -173,14 +181,13 @@ export default function WholesalerOrderDetail() {
               ) : (
                 <>
                   <Feather name="check-circle" size={22} color="#FFF" />
-                  <Text style={styles.confirmBtnText}>Confirm Karo aur SMS Bhejo</Text>
+                  <Text style={styles.confirmBtnText}>{t("confirmOrder")}</Text>
                 </>
               )}
             </TouchableOpacity>
           </>
         )}
 
-        {/* Status Actions for confirmed orders */}
         {order.status === "confirmed" && (
           <TouchableOpacity
             style={[styles.actionBtn, { backgroundColor: "#7C3AED" }]}
@@ -188,7 +195,7 @@ export default function WholesalerOrderDetail() {
             activeOpacity={0.85}
           >
             <Feather name="truck" size={20} color="#FFF" />
-            <Text style={styles.actionBtnText}>Delivery pe Bhej Diya</Text>
+            <Text style={styles.actionBtnText}>{t("deliverySent")}</Text>
           </TouchableOpacity>
         )}
 
@@ -199,7 +206,7 @@ export default function WholesalerOrderDetail() {
             activeOpacity={0.85}
           >
             <Feather name="package" size={20} color="#FFF" />
-            <Text style={styles.actionBtnText}>Pahuch Gaya - Done!</Text>
+            <Text style={styles.actionBtnText}>{t("delivered")}</Text>
           </TouchableOpacity>
         )}
       </ScrollView>

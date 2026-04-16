@@ -14,6 +14,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { LanguageProvider, useLanguage } from "@/context/LanguageContext";
 import { OrderProvider } from "@/context/OrderContext";
 
 SplashScreen.preventAutoHideAsync();
@@ -22,9 +23,10 @@ const queryClient = new QueryClient();
 
 function RootLayoutNav() {
   const { user, isLoading } = useAuth();
+  const { languageReady } = useLanguage();
 
   useEffect(() => {
-    if (isLoading) return;
+    if (isLoading || !languageReady) return;
     if (!user) {
       router.replace("/");
     } else if (user.role === "wholesaler") {
@@ -32,7 +34,7 @@ function RootLayoutNav() {
     } else {
       router.replace("/(tabs)");
     }
-  }, [user, isLoading]);
+  }, [user, isLoading, languageReady]);
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
@@ -66,17 +68,19 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <ErrorBoundary>
-        <QueryClientProvider client={queryClient}>
-          <AuthProvider>
-            <OrderProvider>
-              <GestureHandlerRootView>
-                <KeyboardProvider>
-                  <RootLayoutNav />
-                </KeyboardProvider>
-              </GestureHandlerRootView>
-            </OrderProvider>
-          </AuthProvider>
-        </QueryClientProvider>
+        <LanguageProvider>
+          <QueryClientProvider client={queryClient}>
+            <AuthProvider>
+              <OrderProvider>
+                <GestureHandlerRootView>
+                  <KeyboardProvider>
+                    <RootLayoutNav />
+                  </KeyboardProvider>
+                </GestureHandlerRootView>
+              </OrderProvider>
+            </AuthProvider>
+          </QueryClientProvider>
+        </LanguageProvider>
       </ErrorBoundary>
     </SafeAreaProvider>
   );

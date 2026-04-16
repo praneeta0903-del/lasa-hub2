@@ -4,6 +4,22 @@
 
 A mobile-first B2B supply chain app connecting rural Indian Kirana shop owners with their wholesale suppliers. Built with Expo (React Native) for the mobile frontend.
 
+## Secrets (Configured)
+- `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` — SMS OTP (not yet wired, demo OTP 1234 active)
+- `GEMINI_API_KEY` — AI image/voice parsing (not yet wired, demo simulation active)
+- `MONGODB_URI` — Backend DB (not yet wired, all data in AsyncStorage)
+
+## i18n System
+- `constants/translations.ts` — All UI text in Telugu (తెలుగు), Hindi (हिंदी), English
+- `context/LanguageContext.tsx` — Language state, `useLanguage()` hook, `t(key)` function
+- Language stored in AsyncStorage key `lasa_language`, default: Telugu
+- Language selection is the very first screen before login
+
+## Wholesaler Data
+- `data/wholesalers.ts` — 3 wholesalers (Suresh, Ramesh, Krishna) with full catalog
+- Each catalog item has: name in all 3 languages, price/unit, availability, MOQ, optional offer
+- Review screen: wholesaler selection modal + price catalog modal per wholesaler
+
 ## Stack
 
 - **Monorepo tool**: pnpm workspaces

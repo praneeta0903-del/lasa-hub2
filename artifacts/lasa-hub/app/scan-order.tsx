@@ -16,6 +16,7 @@ import {
 import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { checkInventoryAvailability } from "@/context/OrderContext";
+import { useLanguage } from "@/context/LanguageContext";
 import { useColors } from "@/hooks/useColors";
 
 const DEMO_ITEMS = [
@@ -32,6 +33,7 @@ interface ParsedItem { name: string; quantity: string; available: boolean; }
 export default function ScanOrderScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { t } = useLanguage();
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [parsedItems, setParsedItems] = useState<ParsedItem[] | null>(null);
@@ -75,7 +77,7 @@ export default function ScanOrderScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.foreground }]}>List Photo Lo</Text>
+        <Text style={[styles.headerTitle, { color: colors.foreground }]}>{t("takePhotoTitle")}</Text>
         <View style={{ width: 38 }} />
       </Animated.View>
 
@@ -88,9 +90,7 @@ export default function ScanOrderScreen() {
           <Animated.View entering={FadeInDown.delay(100).springify()} style={styles.pickSection}>
             <View style={[styles.previewBox, { borderColor: colors.border, backgroundColor: colors.secondary }]}>
               <Feather name="image" size={64} color={colors.mutedForeground} />
-              <Text style={[styles.previewHint, { color: colors.mutedForeground }]}>
-                Haath se likhi list ka photo lo
-              </Text>
+              <Text style={[styles.previewHint, { color: colors.mutedForeground }]}>{t("photoHint")}</Text>
             </View>
             <TouchableOpacity
               style={[styles.cameraBtn, { backgroundColor: colors.primary }]}
@@ -98,7 +98,7 @@ export default function ScanOrderScreen() {
               activeOpacity={0.85}
             >
               <Feather name="camera" size={24} color="#FFF" />
-              <Text style={styles.cameraBtnText}>Camera se Photo Lo</Text>
+              <Text style={styles.cameraBtnText}>{t("takePhoto")}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.galleryBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}
@@ -106,7 +106,7 @@ export default function ScanOrderScreen() {
               activeOpacity={0.85}
             >
               <Feather name="image" size={20} color={colors.accent} />
-              <Text style={[styles.galleryBtnText, { color: colors.accent }]}>Gallery se Choose Karo</Text>
+              <Text style={[styles.galleryBtnText, { color: colors.accent }]}>{t("chooseGallery")}</Text>
             </TouchableOpacity>
           </Animated.View>
         ) : (
@@ -115,17 +115,13 @@ export default function ScanOrderScreen() {
             {isAnalyzing ? (
               <View style={[styles.analyzingBox, { backgroundColor: colors.secondary }]}>
                 <ActivityIndicator color={colors.primary} size="large" />
-                <Text style={[styles.analyzingText, { color: colors.foreground }]}>
-                  AI list padh raha hai...
-                </Text>
-                <Text style={[styles.analyzingSubText, { color: colors.mutedForeground }]}>
-                  Items aur quantity nikaal raha hai
-                </Text>
+                <Text style={[styles.analyzingText, { color: colors.foreground }]}>{t("analyzing")}</Text>
+                <Text style={[styles.analyzingSubText, { color: colors.mutedForeground }]}>{t("analyzingSub")}</Text>
               </View>
             ) : parsedItems ? (
               <Animated.View entering={FadeInDown.springify()}>
                 <Text style={[styles.resultTitle, { color: colors.foreground }]}>
-                  {parsedItems.length} items mile
+                  {parsedItems.length} {t("itemsFound")}
                 </Text>
                 {parsedItems.map((item, i) => (
                   <View
@@ -144,14 +140,14 @@ export default function ScanOrderScreen() {
                   onPress={handleProceed}
                   activeOpacity={0.85}
                 >
-                  <Text style={styles.proceedBtnText}>Order Review Karo</Text>
+                  <Text style={styles.proceedBtnText}>{t("reviewTitle")}</Text>
                   <Feather name="arrow-right" size={20} color="#FFF" />
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => { setImageUri(null); setParsedItems(null); }}
                   style={styles.retakeBtn}
                 >
-                  <Text style={[styles.retakeText, { color: colors.mutedForeground }]}>Dobara Photo Lo</Text>
+                  <Text style={[styles.retakeText, { color: colors.mutedForeground }]}>{t("retakePhoto")}</Text>
                 </TouchableOpacity>
               </Animated.View>
             ) : null}
@@ -171,7 +167,7 @@ const styles = StyleSheet.create({
   content: { padding: 20, gap: 14 },
   pickSection: { gap: 14 },
   previewBox: { height: 200, borderRadius: 20, borderWidth: 1.5, borderStyle: "dashed", alignItems: "center", justifyContent: "center", gap: 12 },
-  previewHint: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center" },
+  previewHint: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center", paddingHorizontal: 20 },
   cameraBtn: { height: 58, borderRadius: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
   cameraBtnText: { color: "#FFF", fontSize: 17, fontFamily: "Inter_700Bold" },
   galleryBtn: { height: 52, borderRadius: 16, borderWidth: 1.5, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
