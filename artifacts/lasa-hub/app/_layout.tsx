@@ -9,6 +9,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack, router } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
+import { Platform, StyleSheet, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -38,13 +39,14 @@ function RootLayoutNav() {
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="index" options={{ headerShown: false }} />
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="scan-order" options={{ headerShown: false }} />
-      <Stack.Screen name="voice-order" options={{ headerShown: false }} />
-      <Stack.Screen name="review" options={{ headerShown: false }} />
-      <Stack.Screen name="order-detail" options={{ headerShown: false }} />
-      <Stack.Screen name="wholesaler" options={{ headerShown: false }} />
+      <Stack.Screen name="index" />
+      <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="scan-order" />
+      <Stack.Screen name="voice-order" />
+      <Stack.Screen name="review" />
+      <Stack.Screen name="order-sent" />
+      <Stack.Screen name="order-detail" />
+      <Stack.Screen name="wholesaler" />
     </Stack>
   );
 }
@@ -72,9 +74,18 @@ export default function RootLayout() {
           <QueryClientProvider client={queryClient}>
             <AuthProvider>
               <OrderProvider>
-                <GestureHandlerRootView>
+                <GestureHandlerRootView style={{ flex: 1 }}>
                   <KeyboardProvider>
-                    <RootLayoutNav />
+                    {/* Desktop centering wrapper */}
+                    {Platform.OS === "web" ? (
+                      <View style={styles.desktopOuter}>
+                        <View style={styles.desktopInner}>
+                          <RootLayoutNav />
+                        </View>
+                      </View>
+                    ) : (
+                      <RootLayoutNav />
+                    )}
                   </KeyboardProvider>
                 </GestureHandlerRootView>
               </OrderProvider>
@@ -85,3 +96,23 @@ export default function RootLayout() {
     </SafeAreaProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  desktopOuter: {
+    flex: 1,
+    backgroundColor: "#F3F0EC",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  desktopInner: {
+    width: "100%",
+    maxWidth: 480,
+    flex: 1,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    borderRadius: Platform.OS === "web" ? 24 : 0,
+  },
+});

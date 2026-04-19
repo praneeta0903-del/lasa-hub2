@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { apiPost } from "@/constants/api";
 
 export type UserRole = "kirana" | "wholesaler";
 
@@ -17,17 +18,13 @@ interface AuthContextType {
   generatedOtp: string | null;
   sendOtp: (phone: string) => Promise<void>;
   verifyOtp: (phone: string, otp: string, role: UserRole) => Promise<boolean>;
+  completeProfile: (phone: string, role: UserRole, name: string) => Promise<void>;
   logout: () => Promise<void>;
   setRole: (role: UserRole) => void;
   selectedRole: UserRole;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
-
-const DEMO_USERS: Record<string, User> = {
-  "9999999999": { phone: "9999999999", role: "kirana", name: "Raju Reddy", shopName: "Raju Kirana Store", trustedWholesalerId: "w001" },
-  "8888888888": { phone: "8888888888", role: "wholesaler", name: "Suresh Guptha", shopName: "Suresh Wholesale" },
-};
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -46,27 +43,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const sendOtp = useCallback(async (phone: string) => {
-    const otp = Math.floor(1000 + Math.random() * 9000).toString();
-    setGeneratedOtp(otp);
-    console.log(`OTP for ${phone}: ${otp}`);
-    await new Promise((r) => setTimeout(r, 500));
+    try {
+      const result = await apiPost("/api/otp/send", { phone });
+      // Backend returns otp in dev mode
+      if (result.otp) setGeneratedOtp(result.otp);
+    } catch {
+      // Fallback: generate demo OTP locally
+      const otp = Math.floor(1000 + Math.random() * 9000).toString();
+      setGeneratedOtp(otp);
+    }
   }, []);
 
   const verifyOtp = useCallback(async (phone: string, otp: string, role: UserRole): Promise<boolean> => {
-    if (otp !== generatedOtp && otp !== "1234") return false;
-    const existing = DEMO_USERS[phone];
-    const newUser: User = existing ?? {
+    try {
+      const result = await apiPost("/api/otp/verify", { phone, otp });
+      if (!result.valid && otp !== "1234" && otp !== generatedOtp) return false;
+    } catch {
+      // Fallback: check locally
+      if (otp !== "1234" && otp !== generatedOtp) return false;
+    }
+    return true;
+  }, [generatedOtp]);
+
+  const completeProfile = useCallback(async (phone: string, role: UserRole, name: string) => {
+    const newUser: User = {
       phone,
       role,
-      name: role === "wholesaler" ? "Wholesaler" : "Shop Owner",
-      shopName: role === "wholesaler" ? "My Wholesale" : "My Kirana Store",
+      name: name.trim() || (role === "wholesaler" ? "Wholesaler" : "Shop Owner"),
+      shopName: name.trim() ? `${name.trim()}'s ${role === "wholesaler" ? "Wholesale" : "Kirana"}` : role === "wholesaler" ? "My Wholesale" : "My Kirana Store",
+      trustedWholesalerId: role === "kirana" ? "w001" : undefined,
     };
-    newUser.role = role;
     await AsyncStorage.setItem("lasa_user", JSON.stringify(newUser));
     setUser(newUser);
     setGeneratedOtp(null);
-    return true;
-  }, [generatedOtp]);
+  }, []);
 
   const logout = useCallback(async () => {
     await AsyncStorage.removeItem("lasa_user");
@@ -78,7 +88,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, generatedOtp, sendOtp, verifyOtp, logout, setRole, selectedRole }}>
+    <AuthContext.Provider value={{ user, isLoading, generatedOtp, sendOtp, verifyOtp, completeProfile, logout, setRole, selectedRole }}>
       {children}
     </AuthContext.Provider>
   );

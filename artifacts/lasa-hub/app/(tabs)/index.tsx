@@ -1,8 +1,9 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React from "react";
+import React, { useState } from "react";
 import {
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -21,9 +22,17 @@ export default function KiranaHomeScreen() {
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
   const { t, language } = useLanguage();
+  const [showAccount, setShowAccount] = useState(false);
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? t("greetingMorning") : hour < 17 ? t("greetingAfternoon") : t("greetingEvening");
+
+  const accountTitle = language === "te" ? "మీ ఖాతా" : language === "hi" ? "आपका खाता" : "Your Account";
+  const logoutLabel = language === "te" ? "లాగ్ అవుట్" : language === "hi" ? "लॉगआउट" : "Logout";
+  const closeLabel = language === "te" ? "మూసేయి" : language === "hi" ? "बंद करें" : "Close";
+  const phoneLabel = language === "te" ? "ఫోన్ నంబర్" : language === "hi" ? "फोन नंबर" : "Phone";
+  const roleLabel = language === "te" ? "పాత్ర" : language === "hi" ? "भूमिका" : "Role";
+  const kiranaLabel = language === "te" ? "కిరాణా దుకాణం" : language === "hi" ? "किराना दुकान" : "Kirana Shop";
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -33,12 +42,17 @@ export default function KiranaHomeScreen() {
         style={[styles.header, { backgroundColor: colors.primary, paddingTop: insets.top + (Platform.OS === "web" ? 67 : 16) }]}
       >
         <View style={styles.headerContent}>
-          <View>
+          <View style={styles.headerLeft}>
             <Text style={styles.greetingText}>{greeting},</Text>
-            <Text style={styles.shopNameText}>{user?.shopName ?? "Aapki Dukaan"}</Text>
+            <Text style={styles.shopNameText}>{user?.name ?? user?.shopName ?? "Kirana Owner"}</Text>
           </View>
-          <TouchableOpacity onPress={logout} style={styles.logoutBtn}>
-            <Feather name="log-out" size={20} color="rgba(255,255,255,0.8)" />
+          {/* Account icon */}
+          <TouchableOpacity
+            onPress={() => setShowAccount(true)}
+            style={[styles.accountBtn, { backgroundColor: "rgba(255,255,255,0.2)" }]}
+            activeOpacity={0.8}
+          >
+            <Feather name="user" size={20} color="#FFF" />
           </TouchableOpacity>
         </View>
         <View style={styles.supplierRow}>
@@ -106,14 +120,48 @@ export default function KiranaHomeScreen() {
         </Animated.View>
       </ScrollView>
 
-      {/* FAB */}
-      <TouchableOpacity
-        style={[styles.fab, { backgroundColor: colors.accent, bottom: insets.bottom + (Platform.OS === "web" ? 100 : 82) }]}
-        onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy)}
-        activeOpacity={0.85}
-      >
-        <Feather name="message-circle" size={24} color="#FFF" />
-      </TouchableOpacity>
+      {/* Account Modal */}
+      <Modal visible={showAccount} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.accountSheet, { backgroundColor: colors.background }]}>
+            <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
+            <Text style={[styles.accountTitle, { color: colors.foreground }]}>{accountTitle}</Text>
+
+            <View style={[styles.profileCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <View style={[styles.profileAvatar, { backgroundColor: colors.primary }]}>
+                <Text style={styles.profileAvatarText}>
+                  {(user?.name ?? "U").charAt(0).toUpperCase()}
+                </Text>
+              </View>
+              <View style={styles.profileInfo}>
+                <Text style={[styles.profileName, { color: colors.foreground }]}>{user?.name ?? "User"}</Text>
+                <Text style={[styles.profileDetail, { color: colors.mutedForeground }]}>
+                  {phoneLabel}: +91 {user?.phone}
+                </Text>
+                <Text style={[styles.profileDetail, { color: colors.mutedForeground }]}>
+                  {roleLabel}: {kiranaLabel}
+                </Text>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.logoutBtn, { backgroundColor: "#FEE2E2", borderColor: "#FECACA" }]}
+              onPress={() => { setShowAccount(false); logout(); }}
+              activeOpacity={0.85}
+            >
+              <Feather name="log-out" size={18} color="#DC2626" />
+              <Text style={[styles.logoutBtnText, { color: "#DC2626" }]}>{logoutLabel}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.closeBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}
+              onPress={() => setShowAccount(false)}
+            >
+              <Text style={[styles.closeBtnText, { color: colors.foreground }]}>{closeLabel}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -122,9 +170,10 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   header: { paddingHorizontal: 20, paddingBottom: 20 },
   headerContent: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
+  headerLeft: { flex: 1 },
   greetingText: { color: "rgba(255,255,255,0.85)", fontSize: 14, fontFamily: "Inter_400Regular" },
   shopNameText: { color: "#FFF", fontSize: 22, fontFamily: "Inter_700Bold", marginTop: 2 },
-  logoutBtn: { padding: 8 },
+  accountBtn: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center" },
   supplierRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10 },
   supplierText: { color: "rgba(255,255,255,0.75)", fontSize: 13, fontFamily: "Inter_400Regular" },
   scroll: { flex: 1 },
@@ -138,5 +187,19 @@ const styles = StyleSheet.create({
   quickBtnText: { flex: 1, fontSize: 15, fontFamily: "Inter_600SemiBold" },
   tipBox: { borderRadius: 12, padding: 14, flexDirection: "row", gap: 10, alignItems: "flex-start" },
   tipText: { flex: 1, fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 19 },
-  fab: { position: "absolute", right: 20, width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", elevation: 8, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8 },
+  // Account modal
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },
+  accountSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, gap: 16 },
+  sheetHandle: { width: 36, height: 4, borderRadius: 2, alignSelf: "center", marginBottom: 8 },
+  accountTitle: { fontSize: 20, fontFamily: "Inter_700Bold" },
+  profileCard: { borderRadius: 16, borderWidth: 1, padding: 16, flexDirection: "row", gap: 14, alignItems: "center" },
+  profileAvatar: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center" },
+  profileAvatarText: { color: "#FFF", fontSize: 22, fontFamily: "Inter_700Bold" },
+  profileInfo: { flex: 1, gap: 4 },
+  profileName: { fontSize: 18, fontFamily: "Inter_700Bold" },
+  profileDetail: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  logoutBtn: { height: 54, borderRadius: 14, borderWidth: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
+  logoutBtnText: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
+  closeBtn: { height: 50, borderRadius: 14, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  closeBtnText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
 });

@@ -20,17 +20,18 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useColors } from "@/hooks/useColors";
 import { LANGUAGES, type Language } from "@/constants/translations";
 
-type Step = "language" | "role" | "phone" | "otp";
+type Step = "language" | "role" | "phone" | "otp" | "name";
 
 export default function LoginScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { sendOtp, verifyOtp, generatedOtp, selectedRole, setRole } = useAuth();
+  const { sendOtp, verifyOtp, completeProfile, generatedOtp, selectedRole, setRole } = useAuth();
   const { setLanguage, t, language } = useLanguage();
 
   const [step, setStep] = useState<Step>("language");
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
+  const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -74,12 +75,28 @@ export default function LoginScreen() {
       return;
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setStep("name");
+  };
+
+  const handleCompleteName = async () => {
+    if (!name.trim()) {
+      setError(language === "te" ? "మీ పేరు వేయండి" : language === "hi" ? "अपना नाम डालें" : "Please enter your name");
+      return;
+    }
+    setLoading(true);
+    await completeProfile(phone, selectedRole, name.trim());
+    setLoading(false);
     if (selectedRole === "wholesaler") {
       router.replace("/wholesaler" as any);
     } else {
       router.replace("/(tabs)");
     }
   };
+
+  const nameLabel = language === "te" ? "మీ పేరు" : language === "hi" ? "आपका नाम" : "Your Name";
+  const namePlaceholder = language === "te" ? "పేరు వేయండి" : language === "hi" ? "नाम डालें" : "Enter your name";
+  const nameBtn = language === "te" ? "ముందుకు వెళ్ళండి" : language === "hi" ? "आगे बढ़ें" : "Continue";
+  const nameGreeting = language === "te" ? "OTP ధృవీకరించబడింది! మీ పేరు వేయండి." : language === "hi" ? "OTP सही है! अपना नाम डालें।" : "OTP verified! Please enter your name.";
 
   return (
     <KeyboardAvoidingView
@@ -124,21 +141,13 @@ export default function LoginScreen() {
                   onPress={() => handleLanguageSelect(lang.code)}
                   activeOpacity={0.82}
                 >
-                  <Text style={[
-                    styles.langNative,
-                    { color: language === lang.code ? "#FFF" : colors.foreground },
-                  ]}>
+                  <Text style={[styles.langNative, { color: language === lang.code ? "#FFF" : colors.foreground }]}>
                     {lang.native}
                   </Text>
-                  <Text style={[
-                    styles.langEnglish,
-                    { color: language === lang.code ? "rgba(255,255,255,0.8)" : colors.mutedForeground },
-                  ]}>
+                  <Text style={[styles.langEnglish, { color: language === lang.code ? "rgba(255,255,255,0.8)" : colors.mutedForeground }]}>
                     {lang.label}
                   </Text>
-                  {language === lang.code && (
-                    <Feather name="check" size={20} color="#FFF" style={styles.langCheck} />
-                  )}
+                  {language === lang.code && <Feather name="check" size={20} color="#FFF" />}
                 </TouchableOpacity>
               </Animated.View>
             ))}
@@ -223,7 +232,9 @@ export default function LoginScreen() {
             </Text>
             {generatedOtp ? (
               <Animated.View entering={FadeIn.springify()} style={[styles.otpPreviewBox, { backgroundColor: colors.secondary }]}>
-                <Text style={[styles.otpPreviewLabel, { color: colors.mutedForeground }]}>Demo OTP:</Text>
+                <Text style={[styles.otpPreviewLabel, { color: colors.mutedForeground }]}>
+                  {language === "te" ? "OTP (demo):" : language === "hi" ? "OTP (demo):" : "OTP (demo):"}
+                </Text>
                 <Text style={[styles.otpPreviewCode, { color: colors.primary }]}>{generatedOtp}</Text>
               </Animated.View>
             ) : null}
@@ -252,6 +263,41 @@ export default function LoginScreen() {
             </TouchableOpacity>
           </Animated.View>
         )}
+
+        {/* ── Step 4: Name ── */}
+        {step === "name" && (
+          <Animated.View entering={FadeInUp.springify()} style={styles.stepBox}>
+            <View style={[styles.nameSuccessIcon, { backgroundColor: colors.available + "18" }]}>
+              <Feather name="check-circle" size={40} color={colors.available} />
+            </View>
+            <Text style={[styles.stepTitle, { color: colors.foreground }]}>{nameLabel}</Text>
+            <Text style={[styles.stepSub, { color: colors.mutedForeground }]}>{nameGreeting}</Text>
+            <TextInput
+              style={[styles.nameInput, { borderColor: colors.primary, color: colors.foreground, backgroundColor: colors.card }]}
+              placeholder={namePlaceholder}
+              placeholderTextColor={colors.mutedForeground}
+              value={name}
+              onChangeText={(v) => { setName(v); setError(""); }}
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={handleCompleteName}
+            />
+            {error ? <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text> : null}
+            <TouchableOpacity
+              style={[styles.primaryBtn, { backgroundColor: colors.primary, opacity: loading ? 0.7 : 1 }]}
+              onPress={handleCompleteName}
+              disabled={loading}
+              activeOpacity={0.85}
+            >
+              {loading ? <ActivityIndicator color="#FFF" /> : (
+                <>
+                  <Text style={styles.primaryBtnText}>{nameBtn}</Text>
+                  <Feather name="arrow-right" size={20} color="#FFF" />
+                </>
+              )}
+            </TouchableOpacity>
+          </Animated.View>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -266,13 +312,9 @@ const styles = StyleSheet.create({
   tagline: { fontSize: 15, fontFamily: "Inter_400Regular", marginTop: 4 },
   stepBox: { gap: 14 },
   langTitle: { fontSize: 20, fontFamily: "Inter_700Bold", textAlign: "center", marginBottom: 8 },
-  langBtn: {
-    borderRadius: 16, borderWidth: 1.5, padding: 20,
-    flexDirection: "row", alignItems: "center", gap: 12,
-  },
+  langBtn: { borderRadius: 16, borderWidth: 1.5, padding: 20, flexDirection: "row", alignItems: "center", gap: 12 },
   langNative: { fontSize: 22, fontFamily: "Inter_700Bold", flex: 1 },
   langEnglish: { fontSize: 14, fontFamily: "Inter_400Regular" },
-  langCheck: {},
   backBtn: { marginBottom: 4, alignSelf: "flex-start" },
   backLink: { flexDirection: "row", alignItems: "center", gap: 6, justifyContent: "center", paddingTop: 4 },
   backLinkText: { fontSize: 13, fontFamily: "Inter_400Regular" },
@@ -286,7 +328,7 @@ const styles = StyleSheet.create({
   divider: { width: 1, height: 28, marginHorizontal: 12 },
   phoneInput: { flex: 1, fontSize: 20, fontFamily: "Inter_500Medium", letterSpacing: 1 },
   errorText: { fontSize: 13, fontFamily: "Inter_500Medium" },
-  primaryBtn: { height: 58, borderRadius: 16, alignItems: "center", justifyContent: "center", marginTop: 4 },
+  primaryBtn: { height: 58, borderRadius: 16, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, marginTop: 4 },
   primaryBtnText: { color: "#FFF", fontSize: 18, fontFamily: "Inter_700Bold" },
   hint: { fontSize: 12, fontFamily: "Inter_400Regular", textAlign: "center" },
   otpPreviewBox: { borderRadius: 12, padding: 12, flexDirection: "row", alignItems: "center", gap: 8, justifyContent: "center" },
@@ -295,4 +337,6 @@ const styles = StyleSheet.create({
   otpInput: { height: 72, borderWidth: 2, borderRadius: 16, fontSize: 32, fontFamily: "Inter_700Bold", letterSpacing: 12 },
   resendBtn: { alignItems: "center", paddingVertical: 8 },
   resendText: { fontSize: 14, fontFamily: "Inter_500Medium" },
+  nameSuccessIcon: { alignSelf: "center", width: 80, height: 80, borderRadius: 40, alignItems: "center", justifyContent: "center" },
+  nameInput: { height: 60, borderWidth: 2, borderRadius: 16, fontSize: 20, fontFamily: "Inter_600SemiBold", paddingHorizontal: 20 },
 });

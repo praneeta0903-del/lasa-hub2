@@ -8,29 +8,54 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { checkInventoryAvailability } from "@/context/OrderContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useColors } from "@/hooks/useColors";
+import { apiPost } from "@/constants/api";
 
 interface ParsedItem { name: string; quantity: string; available: boolean; }
 
-const SAMPLE_VOICE_ITEMS: ParsedItem[] = [
+const FALLBACK_ITEMS: ParsedItem[] = [
   { name: "Chilli Powder", quantity: "1 kg", available: true },
   { name: "Turmeric", quantity: "500 gm", available: true },
   { name: "Coconut Oil", quantity: "1 L", available: true },
   { name: "Salt", quantity: "2 kg", available: true },
-  { name: "Milk Packet", quantity: "5 packets", available: false },
 ];
+
+declare global {
+  interface Window {
+    SpeechRecognition: any;
+    webkitSpeechRecognition: any;
+  }
+}
+
+function getSpeechLang(lang: string) {
+  if (lang === "te") return "te-IN";
+  if (lang === "hi") return "hi-IN";
+  return "en-IN";
+}
 
 export default function VoiceOrderScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
 
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [parsedItems, setParsedItems] = useState<ParsedItem[] | null>(null);
   const [recordSeconds, setRecordSeconds] = useState(0);
+  const [transcript, setTranscript] = useState("");
+  const [parseError, setParseError] = useState<string | null>(null);
+  const [speechSupported, setSpeechSupported] = useState(false);
+
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recognitionRef = useRef<any>(null);
 
   const pulseScale = useSharedValue(1);
+
+  useEffect(() => {
+    if (Platform.OS === "web") {
+      const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+      setSpeechSupported(!!SpeechRec);
+    }
+  }, []);
 
   useEffect(() => {
     if (isRecording) {
@@ -46,22 +71,73 @@ export default function VoiceOrderScreen() {
 
   const startRecording = () => {
     setIsRecording(true);
+    setTranscript("");
     setRecordSeconds(0);
+    setParseError(null);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     timerRef.current = setInterval(() => setRecordSeconds(s => s + 1), 1000);
+
+    if (Platform.OS === "web") {
+      const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRec) {
+        const rec = new SpeechRec();
+        rec.continuous = true;
+        rec.interimResults = true;
+        rec.lang = getSpeechLang(language);
+        rec.onresult = (e: any) => {
+          let final = "";
+          for (let i = 0; i < e.results.length; i++) {
+            if (e.results[i].isFinal) final += e.results[i][0].transcript + " ";
+          }
+          if (final) setTranscript(final.trim());
+        };
+        rec.start();
+        recognitionRef.current = rec;
+      }
+    }
   };
 
   const stopRecording = async () => {
     if (timerRef.current) clearInterval(timerRef.current);
     setIsRecording(false);
+
+    let finalTranscript = transcript;
+
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+      await new Promise(r => setTimeout(r, 500));
+      finalTranscript = transcript;
+    }
+
+    if (!finalTranscript.trim()) {
+      // No speech detected — use demo items
+      setParseError("No speech detected. Showing demo items.");
+      const items = FALLBACK_ITEMS.map(i => ({ ...i, available: checkInventoryAvailability(i.name) }));
+      setParsedItems(items);
+      return;
+    }
+
     setIsProcessing(true);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    await new Promise((r) => setTimeout(r, 2000));
-    const items = SAMPLE_VOICE_ITEMS.map(i => ({
-      ...i,
-      available: checkInventoryAvailability(i.name),
-    }));
-    setParsedItems(items);
+
+    try {
+      const result = await apiPost("/api/ai/parse-voice", { transcript: finalTranscript });
+      if (result.items && Array.isArray(result.items) && result.items.length > 0) {
+        const items: ParsedItem[] = result.items.map((i: any) => ({
+          name: i.name ?? "Item",
+          quantity: i.quantity ?? "1",
+          available: checkInventoryAvailability(i.name ?? ""),
+        }));
+        setParsedItems(items);
+      } else {
+        throw new Error("No items parsed");
+      }
+    } catch (err: any) {
+      setParseError(`AI parsing failed: ${err?.message ?? "unknown error"}. Showing demo data.`);
+      const items = FALLBACK_ITEMS.map(i => ({ ...i, available: checkInventoryAvailability(i.name) }));
+      setParsedItems(items);
+    }
     setIsProcessing(false);
   };
 
@@ -93,16 +169,26 @@ export default function VoiceOrderScreen() {
       >
         {!parsedItems && !isProcessing ? (
           <Animated.View entering={FadeInDown.delay(100).springify()} style={styles.recordSection}>
+            {Platform.OS === "web" && !speechSupported && (
+              <View style={[styles.warnBox, { backgroundColor: "#FEF3C7", borderColor: "#F59E0B" }]}>
+                <Feather name="alert-triangle" size={16} color="#F59E0B" />
+                <Text style={styles.warnText}>Speech recognition not supported in this browser. Try Chrome.</Text>
+              </View>
+            )}
             <Text style={[styles.instruction, { color: colors.mutedForeground }]}>{t("holdToRecord")}</Text>
             <Text style={[styles.example, { color: colors.mutedForeground }]}>{t("voiceExample")}</Text>
+
+            {transcript ? (
+              <View style={[styles.transcriptBox, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+                <Feather name="mic" size={14} color={colors.primary} />
+                <Text style={[styles.transcriptText, { color: colors.foreground }]}>{transcript}</Text>
+              </View>
+            ) : null}
 
             <View style={styles.micContainer}>
               <Animated.View style={pulseStyle}>
                 <TouchableOpacity
-                  style={[
-                    styles.micBtn,
-                    { backgroundColor: isRecording ? colors.destructive : colors.primary },
-                  ]}
+                  style={[styles.micBtn, { backgroundColor: isRecording ? colors.destructive : colors.primary }]}
                   onPressIn={startRecording}
                   onPressOut={stopRecording}
                   activeOpacity={0.9}
@@ -113,9 +199,7 @@ export default function VoiceOrderScreen() {
               {isRecording ? (
                 <Animated.View entering={FadeIn.springify()} style={styles.recordingInfo}>
                   <View style={[styles.redDot, { backgroundColor: colors.destructive }]} />
-                  <Text style={[styles.recordingTime, { color: colors.foreground }]}>
-                    {formatTime(recordSeconds)}
-                  </Text>
+                  <Text style={[styles.recordingTime, { color: colors.foreground }]}>{formatTime(recordSeconds)}</Text>
                   <Text style={[styles.recordingHint, { color: colors.mutedForeground }]}>{t("releaseToStop")}</Text>
                 </Animated.View>
               ) : (
@@ -128,17 +212,25 @@ export default function VoiceOrderScreen() {
             <ActivityIndicator color={colors.primary} size="large" />
             <Text style={[styles.processingText, { color: colors.foreground }]}>{t("processing")}</Text>
             <Text style={[styles.processingSubText, { color: colors.mutedForeground }]}>{t("processingSub")}</Text>
+            {transcript ? (
+              <View style={[styles.transcriptBox, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+                <Text style={[styles.transcriptText, { color: colors.mutedForeground }]}>"{transcript}"</Text>
+              </View>
+            ) : null}
           </Animated.View>
         ) : parsedItems ? (
           <Animated.View entering={FadeInDown.springify()} style={styles.resultSection}>
+            {parseError && (
+              <View style={[styles.warnBox, { backgroundColor: "#FEF3C7", borderColor: "#F59E0B" }]}>
+                <Feather name="alert-triangle" size={16} color="#F59E0B" />
+                <Text style={styles.warnText}>{parseError}</Text>
+              </View>
+            )}
             <Text style={[styles.resultTitle, { color: colors.foreground }]}>
               {parsedItems.length} {t("itemsFound")}
             </Text>
             {parsedItems.map((item, i) => (
-              <View
-                key={i}
-                style={[styles.itemRow, { backgroundColor: colors.card, borderColor: colors.border }]}
-              >
+              <View key={i} style={[styles.itemRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <View style={styles.itemLeft}>
                   <Text style={[styles.itemName, { color: colors.foreground }]}>{item.name}</Text>
                   <Text style={[styles.itemQty, { color: colors.mutedForeground }]}>{item.quantity}</Text>
@@ -146,18 +238,11 @@ export default function VoiceOrderScreen() {
                 <View style={[styles.dot, { backgroundColor: item.available ? colors.available : colors.unavailable }]} />
               </View>
             ))}
-            <TouchableOpacity
-              style={[styles.proceedBtn, { backgroundColor: colors.primary }]}
-              onPress={handleProceed}
-              activeOpacity={0.85}
-            >
+            <TouchableOpacity style={[styles.proceedBtn, { backgroundColor: colors.primary }]} onPress={handleProceed} activeOpacity={0.85}>
               <Text style={styles.proceedBtnText}>{t("reviewTitle")}</Text>
               <Feather name="arrow-right" size={20} color="#FFF" />
             </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => { setParsedItems(null); setRecordSeconds(0); }}
-              style={styles.retakeBtn}
-            >
+            <TouchableOpacity onPress={() => { setParsedItems(null); setTranscript(""); setRecordSeconds(0); setParseError(null); }} style={styles.retakeBtn}>
               <Text style={[styles.retakeText, { color: colors.mutedForeground }]}>{t("reRecord")}</Text>
             </TouchableOpacity>
           </Animated.View>
@@ -177,6 +262,10 @@ const styles = StyleSheet.create({
   recordSection: { alignItems: "center", gap: 16 },
   instruction: { fontSize: 16, fontFamily: "Inter_500Medium", textAlign: "center" },
   example: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center", fontStyle: "italic", paddingHorizontal: 20 },
+  warnBox: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 10, borderWidth: 1, padding: 12, width: "100%" },
+  warnText: { flex: 1, fontSize: 12, fontFamily: "Inter_400Regular", color: "#92400E" },
+  transcriptBox: { borderRadius: 12, borderWidth: 1, padding: 12, flexDirection: "row", gap: 8, alignItems: "flex-start", width: "100%" },
+  transcriptText: { flex: 1, fontSize: 13, fontFamily: "Inter_400Regular", fontStyle: "italic" },
   micContainer: { alignItems: "center", gap: 20, marginTop: 20 },
   micBtn: { width: 120, height: 120, borderRadius: 60, alignItems: "center", justifyContent: "center", elevation: 8, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 12 },
   recordingInfo: { alignItems: "center", gap: 6 },

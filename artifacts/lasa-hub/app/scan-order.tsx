@@ -18,17 +18,41 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { checkInventoryAvailability } from "@/context/OrderContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useColors } from "@/hooks/useColors";
+import { apiPost } from "@/constants/api";
 
-const DEMO_ITEMS = [
+interface ParsedItem { name: string; quantity: string; available: boolean; }
+
+const FALLBACK_ITEMS = [
   { name: "Toor Dal", quantity: "5 kg" },
   { name: "Rice Basmati", quantity: "10 kg" },
   { name: "Sunflower Oil", quantity: "2 L" },
   { name: "Sugar", quantity: "3 kg" },
   { name: "Tea Powder", quantity: "500 gm" },
-  { name: "Biscuits Parle-G", quantity: "2 boxes" },
 ];
 
-interface ParsedItem { name: string; quantity: string; available: boolean; }
+async function imageUriToBase64(uri: string): Promise<{ base64: string; mimeType: string }> {
+  if (Platform.OS === "web") {
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = reader.result as string;
+        const match = result.match(/^data:([^;]+);base64,(.+)$/);
+        if (!match) { reject(new Error("Invalid base64")); return; }
+        resolve({ base64: match[2], mimeType: match[1] });
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } else {
+    const { default: FileSystem } = await import("expo-file-system" as any);
+    const base64 = await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    return { base64, mimeType: "image/jpeg" };
+  }
+}
 
 export default function ScanOrderScreen() {
   const colors = useColors();
@@ -37,29 +61,55 @@ export default function ScanOrderScreen() {
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [parsedItems, setParsedItems] = useState<ParsedItem[] | null>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   const pickImage = async (fromCamera: boolean) => {
-    const fn = fromCamera ? ImagePicker.launchCameraAsync : ImagePicker.launchImageLibraryAsync;
-    const result = await fn({ mediaTypes: ["images"], quality: 0.8 });
-    if (!result.canceled && result.assets[0]) {
-      const uri = result.assets[0].uri;
-      setImageUri(uri);
-      setParsedItems(null);
-      analyzeImage(uri);
+    try {
+      const fn = fromCamera ? ImagePicker.launchCameraAsync : ImagePicker.launchImageLibraryAsync;
+      const result = await fn({ mediaTypes: ["images"], quality: 0.85, base64: false });
+      if (!result.canceled && result.assets[0]) {
+        const uri = result.assets[0].uri;
+        setImageUri(uri);
+        setParsedItems(null);
+        setAnalysisError(null);
+        analyzeImage(uri);
+      }
+    } catch (err) {
+      setAnalysisError("Camera error. Please try again.");
     }
   };
 
-  const analyzeImage = async (_uri: string) => {
+  const analyzeImage = async (uri: string) => {
     setIsAnalyzing(true);
+    setAnalysisError(null);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    await new Promise((r) => setTimeout(r, 2000));
-    const items: ParsedItem[] = DEMO_ITEMS.map(i => ({
-      ...i,
-      available: checkInventoryAvailability(i.name),
-    }));
-    setParsedItems(items);
+
+    try {
+      const { base64, mimeType } = await imageUriToBase64(uri);
+      const result = await apiPost("/api/ai/analyze-image", { imageBase64: base64, mimeType });
+
+      if (result.items && Array.isArray(result.items) && result.items.length > 0) {
+        const items: ParsedItem[] = result.items.map((i: any) => ({
+          name: i.name ?? "Unknown Item",
+          quantity: i.quantity ?? "1",
+          available: checkInventoryAvailability(i.name ?? ""),
+        }));
+        setParsedItems(items);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } else {
+        throw new Error("No items detected");
+      }
+    } catch (err: any) {
+      console.warn("Gemini analysis failed, using fallback:", err?.message);
+      setAnalysisError("AI analysis failed — using demo data. Check your image quality.");
+      const items: ParsedItem[] = FALLBACK_ITEMS.map(i => ({
+        ...i,
+        available: checkInventoryAvailability(i.name),
+      }));
+      setParsedItems(items);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    }
     setIsAnalyzing(false);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
   const handleProceed = () => {
@@ -89,8 +139,15 @@ export default function ScanOrderScreen() {
         {!imageUri ? (
           <Animated.View entering={FadeInDown.delay(100).springify()} style={styles.pickSection}>
             <View style={[styles.previewBox, { borderColor: colors.border, backgroundColor: colors.secondary }]}>
-              <Feather name="image" size={64} color={colors.mutedForeground} />
+              <Feather name="camera" size={64} color={colors.primary} />
               <Text style={[styles.previewHint, { color: colors.mutedForeground }]}>{t("photoHint")}</Text>
+              <Text style={[styles.previewSub, { color: colors.mutedForeground }]}>
+                {t("language") === "te"
+                  ? "స్పష్టంగా మరియు మంచి వెలుతురులో ఫోటో తీయండి"
+                  : t("language") === "hi"
+                  ? "साफ और अच्छी रोशनी में फोटो लें"
+                  : "Take a clear photo in good lighting for best results"}
+              </Text>
             </View>
             <TouchableOpacity
               style={[styles.cameraBtn, { backgroundColor: colors.primary }]}
@@ -112,6 +169,7 @@ export default function ScanOrderScreen() {
         ) : (
           <Animated.View entering={FadeIn.springify()} style={styles.analyzeSection}>
             <Image source={{ uri: imageUri }} style={styles.image} resizeMode="cover" />
+
             {isAnalyzing ? (
               <View style={[styles.analyzingBox, { backgroundColor: colors.secondary }]}>
                 <ActivityIndicator color={colors.primary} size="large" />
@@ -120,6 +178,12 @@ export default function ScanOrderScreen() {
               </View>
             ) : parsedItems ? (
               <Animated.View entering={FadeInDown.springify()}>
+                {analysisError && (
+                  <View style={[styles.errorBox, { backgroundColor: "#FEF3C7", borderColor: "#F59E0B" }]}>
+                    <Feather name="alert-triangle" size={16} color="#F59E0B" />
+                    <Text style={styles.errorBoxText}>{analysisError}</Text>
+                  </View>
+                )}
                 <Text style={[styles.resultTitle, { color: colors.foreground }]}>
                   {parsedItems.length} {t("itemsFound")}
                 </Text>
@@ -144,7 +208,7 @@ export default function ScanOrderScreen() {
                   <Feather name="arrow-right" size={20} color="#FFF" />
                 </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={() => { setImageUri(null); setParsedItems(null); }}
+                  onPress={() => { setImageUri(null); setParsedItems(null); setAnalysisError(null); }}
                   style={styles.retakeBtn}
                 >
                   <Text style={[styles.retakeText, { color: colors.mutedForeground }]}>{t("retakePhoto")}</Text>
@@ -166,17 +230,20 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: { padding: 20, gap: 14 },
   pickSection: { gap: 14 },
-  previewBox: { height: 200, borderRadius: 20, borderWidth: 1.5, borderStyle: "dashed", alignItems: "center", justifyContent: "center", gap: 12 },
-  previewHint: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center", paddingHorizontal: 20 },
+  previewBox: { height: 220, borderRadius: 20, borderWidth: 1.5, borderStyle: "dashed", alignItems: "center", justifyContent: "center", gap: 12, padding: 20 },
+  previewHint: { fontSize: 15, fontFamily: "Inter_500Medium", textAlign: "center" },
+  previewSub: { fontSize: 12, fontFamily: "Inter_400Regular", textAlign: "center" },
   cameraBtn: { height: 58, borderRadius: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
   cameraBtnText: { color: "#FFF", fontSize: 17, fontFamily: "Inter_700Bold" },
   galleryBtn: { height: 52, borderRadius: 16, borderWidth: 1.5, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
   galleryBtnText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   analyzeSection: { gap: 14 },
-  image: { width: "100%", height: 200, borderRadius: 16 },
-  analyzingBox: { borderRadius: 16, padding: 24, alignItems: "center", gap: 10 },
+  image: { width: "100%", height: 220, borderRadius: 16 },
+  analyzingBox: { borderRadius: 16, padding: 28, alignItems: "center", gap: 12 },
   analyzingText: { fontSize: 17, fontFamily: "Inter_600SemiBold" },
   analyzingSubText: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  errorBox: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 10, borderWidth: 1, padding: 12, marginBottom: 8 },
+  errorBoxText: { flex: 1, fontSize: 12, fontFamily: "Inter_400Regular", color: "#92400E" },
   resultTitle: { fontSize: 18, fontFamily: "Inter_700Bold", marginBottom: 8 },
   itemRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 12, borderWidth: 1, padding: 14, marginBottom: 8 },
   itemLeft: { flex: 1 },

@@ -132,9 +132,7 @@ export default function ReviewScreen() {
     });
     setIsSending(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Alert.alert(t("orderSentTitle"), t("orderSentMsg"), [
-      { text: t("ok"), onPress: () => router.replace("/(tabs)/orders") },
-    ]);
+    router.replace("/order-sent" as any);
   };
 
   const availableCount = items.filter(i => i.available).length;
