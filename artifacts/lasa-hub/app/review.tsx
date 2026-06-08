@@ -19,38 +19,57 @@ import Animated, { FadeInDown, FadeInUp, Layout } from "react-native-reanimated"
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
-import { checkInventoryAvailability, useOrders, type OrderItem } from "@/context/OrderContext";
-import { WHOLESALERS, getItemAvailability, getItemNameInLanguage, type Wholesaler } from "@/data/wholesalers";
+import { useOrders, type OrderItem } from "@/context/OrderContext";
+import { useWholesalers } from "@/context/WholesalersContext";
+import { getItemNameInLanguage, pickName, type Wholesaler } from "@/data/wholesalers";
+import { kiranaStockLabel } from "@/utils/stockLabels";
+import { findSimilarCatalogItems } from "@/utils/catalogMatch";
+import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { useColors } from "@/hooks/useColors";
 
-const QUICK_REORDER_ITEMS: OrderItem[] = [
-  { name: "Toor Dal", quantity: "5 kg", available: true },
-  { name: "Rice Basmati", quantity: "10 kg", available: true },
-  { name: "Sugar", quantity: "3 kg", available: true },
-  { name: "Tea Powder", quantity: "500 gm", available: true },
-];
+function parseQty(q: string): number {
+  const m = q.match(/(\d+(\.\d+)?)/);
+  return m ? Number(m[1]) : 1;
+}
 
 export default function ReviewScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { t, language } = useLanguage();
-  const { createOrder } = useOrders();
+  const { createOrder, orders } = useOrders();
+  const { wholesalers, isAvailable, stockFor, rankSuppliers, refresh: refreshWholesalers } = useWholesalers();
+
+  // Pull fresh catalog every time the kirana opens this screen so stock is real-time.
+  useEffect(() => { refreshWholesalers(); }, [refreshWholesalers]);
+
+  const [showSupplierPicker, setShowSupplierPicker] = useState(false);
   const params = useLocalSearchParams<{ items?: string; mode?: string }>();
 
   const [items, setItems] = useState<OrderItem[]>([]);
   const [notes, setNotes] = useState("");
+  const [deliveryAddress, setDeliveryAddress] = useState(user?.shopName ?? "");
   const [isSending, setIsSending] = useState(false);
 
   // Wholesaler selection
-  const [selectedWholesaler, setSelectedWholesaler] = useState<Wholesaler>(WHOLESALERS[0]);
+  const [selectedWholesaler, setSelectedWholesaler] = useState<Wholesaler>(wholesalers[0]);
   const [showWholesalerModal, setShowWholesalerModal] = useState(false);
   const [showCatalogModal, setShowCatalogModal] = useState(false);
-  const [catalogWholesaler, setCatalogWholesaler] = useState<Wholesaler>(WHOLESALERS[0]);
+  const [catalogWholesaler, setCatalogWholesaler] = useState<Wholesaler>(wholesalers[0]);
+
+  // Keep selection in sync if wholesalers load/refresh.
+  useEffect(() => {
+    if (!wholesalers.length) return;
+    if (!wholesalers.find(w => w.id === selectedWholesaler?.id)) {
+      setSelectedWholesaler(wholesalers[0]);
+      setCatalogWholesaler(wholesalers[0]);
+    }
+  }, [wholesalers, selectedWholesaler?.id]);
 
   // Inline item editing
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editQtyValue, setEditQtyValue] = useState("");
+  const [editNameValue, setEditNameValue] = useState("");
 
   // Add item
   const [newItemName, setNewItemName] = useState("");
@@ -60,24 +79,40 @@ export default function ReviewScreen() {
   useEffect(() => {
     let baseItems: OrderItem[] = [];
     if (params.mode === "quick") {
-      baseItems = QUICK_REORDER_ITEMS;
+      const sorted = [...orders].sort((a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+      const last = sorted[0];
+      if (last) {
+        baseItems = last.items.map(i => ({
+          name: i.name,
+          nameTe: i.nameTe,
+          nameHi: i.nameHi,
+          sourceLanguage: i.sourceLanguage,
+          quantity: i.quantity,
+          available: true,
+        }));
+        if (last.wholesalerId) {
+          const lastWs = wholesalers.find(w => w.id === last.wholesalerId);
+          if (lastWs) setSelectedWholesaler(lastWs);
+        }
+      }
     } else if (params.items) {
       try { baseItems = JSON.parse(decodeURIComponent(params.items)); } catch {}
     }
-    // Re-check availability against selected wholesaler
     setItems(baseItems.map(i => ({
       ...i,
-      available: getItemAvailability(selectedWholesaler.id, i.name),
+      available: isAvailable(selectedWholesaler?.id ?? "", i.name),
     })));
-  }, [params.items, params.mode]);
+  }, [params.items, params.mode, orders, wholesalers]);
 
   // Re-check availability when wholesaler changes
   useEffect(() => {
     setItems(prev => prev.map(i => ({
       ...i,
-      available: getItemAvailability(selectedWholesaler.id, i.name),
+      available: isAvailable(selectedWholesaler?.id ?? "", i.name),
     })));
-  }, [selectedWholesaler]);
+  }, [selectedWholesaler, isAvailable]);
 
   const removeItem = (idx: number) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -89,15 +124,29 @@ export default function ReviewScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setEditingIdx(idx);
     setEditQtyValue(items[idx].quantity);
+    setEditNameValue(items[idx].name);
   };
 
   const saveEdit = () => {
     if (editingIdx === null) return;
+    const newName = editNameValue.trim() || items[editingIdx].name;
     setItems(prev => prev.map((item, i) =>
-      i === editingIdx ? { ...item, quantity: editQtyValue } : item
+      i === editingIdx
+        ? {
+            ...item,
+            name: newName,
+            quantity: editQtyValue,
+            // Clear the AI-suggested language variants once the user has
+            // manually rewritten the name — they no longer apply.
+            ...(newName.toLowerCase() !== item.name.toLowerCase()
+              ? { nameTe: undefined, nameHi: undefined }
+              : {}),
+          }
+        : item,
     ));
     setEditingIdx(null);
     setEditQtyValue("");
+    setEditNameValue("");
   };
 
   const addItem = () => {
@@ -106,7 +155,7 @@ export default function ReviewScreen() {
     const newItem: OrderItem = {
       name: newItemName.trim(),
       quantity: newItemQty.trim() || "1",
-      available: getItemAvailability(selectedWholesaler.id, newItemName.trim()),
+      available: isAvailable(selectedWholesaler?.id ?? "", newItemName.trim()),
     };
     setItems(prev => [...prev, newItem]);
     setNewItemName("");
@@ -114,36 +163,117 @@ export default function ReviewScreen() {
     setShowAddRow(false);
   };
 
+  // Cross-platform alert that works on web (where Alert.alert can be
+  // suppressed by some browsers / extensions and used to silently swallow
+  // validation feedback). Always logs to the console as a fallback so
+  // the user can see what blocked the send from DevTools.
+  const tell = (title: string, body?: string) => {
+    const msg = body ? `${title}\n\n${body}` : title;
+    console.warn("[send-order]", title, body ?? "");
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      window.alert(msg);
+    } else {
+      Alert.alert(title, body);
+    }
+  };
+
   const handleSendOrder = async () => {
+    console.info("[send-order] tapped", {
+      hasUser: !!user?.phone,
+      items: items.length,
+      hasSupplier: !!selectedWholesaler,
+      deliveryAddress: deliveryAddress?.length ?? 0,
+      minOrderViolations: minOrderViolations.length,
+    });
+    if (!user?.phone) {
+      tell("Please login again before placing an order.");
+      return;
+    }
     if (items.length === 0) {
-      Alert.alert("", t("addItem"));
+      tell(t("addItem"));
+      return;
+    }
+    // Without a supplier we can't build the order — the previous code
+    // crashed silently on `selectedWholesaler.id` here.
+    if (!selectedWholesaler?.id) {
+      tell("Pick a supplier first", "Tap 'Select this Supplier' on the list above.");
+      return;
+    }
+    if (!deliveryAddress.trim()) {
+      tell("Delivery address is required", "Add your shop address so the supplier knows where to deliver.");
+      return;
+    }
+    if (minOrderViolations.length > 0) {
+      const first = minOrderViolations[0];
+      const unit = first.catalog?.unit ?? "";
+      tell(
+        "Minimum order not met",
+        `This shop's minimum for ${first.catalog?.name ?? "one item"} is ${first.minOrderQty}${unit ? " " + unit : ""}. Increase the quantity or pick a different shop.`,
+      );
       return;
     }
     setIsSending(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    await createOrder({
-      kiranaPhone: user?.phone ?? "0000000000",
-      kiranaName: user?.name ?? "Shop Owner",
-      shopName: user?.shopName ?? "My Store",
-      wholesalerId: selectedWholesaler.id,
-      items,
-      status: "pending",
-      notes,
-    });
-    setIsSending(false);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    router.replace("/order-sent" as any);
+    try {
+      await createOrder({
+        kiranaPhone: user.phone,
+        kiranaName: user?.name ?? "Shop Owner",
+        shopName: user?.shopName ?? "My Store",
+        wholesalerId: selectedWholesaler.id,
+        items,
+        status: "pending",
+        notes,
+        deliveryAddress,
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.replace("/order-sent" as any);
+    } catch (err: any) {
+      console.error("[send-order] createOrder failed", err);
+      tell(
+        "Couldn't send the order",
+        err?.message
+          ? `${err.message}\n\nYour items are still here — tap Send again.`
+          : "Network or server error. Your items are still here — tap Send again.",
+      );
+    } finally {
+      // CRITICAL: always reset, even on error. Without this the button
+      // stays in the spinner state forever and the user thinks the
+      // app is broken.
+      setIsSending(false);
+    }
   };
 
-  const availableCount = items.filter(i => i.available).length;
   const unavailableCount = items.filter(i => !i.available).length;
 
-  const getItemDisplayName = (name: string) => {
-    if (language === "en") return name;
-    const w = WHOLESALERS[0];
-    const cat = w.catalog.find(c => c.name.toLowerCase() === name.toLowerCase());
-    if (!cat) return name;
-    return getItemNameInLanguage(cat, language);
+  // Live stock check per item against the currently-selected supplier.
+  // Pass the RAW quantity string so the catalog comparison can unit-convert
+  // (e.g. "500 gm" against a catalog row in kg becomes 0.5 vs 20, not 500 vs 20).
+  const itemStocks = items.map(i =>
+    stockFor(selectedWholesaler?.id ?? "", i.name, i.quantity, i.nameTe, i.nameHi),
+  );
+
+  // Ranked supplier suggestions (real-time from catalog + distance from kirana).
+  const suggestions = items.length
+    ? rankSuppliers(
+        items.map(i => ({ name: i.name, quantity: i.quantity, nameTe: i.nameTe, nameHi: i.nameHi })),
+        { lat: user?.lat, lng: user?.lng },
+      ).slice(0, 5)
+    : [];
+  const topSuggestion = suggestions[0];
+
+  // Block send if any item violates the supplier's minimum order quantity.
+  const minOrderViolations = itemStocks.filter(s => s.state === "below_min_order");
+
+  // Prefer the catalog version when the item matches (rich, well-curated),
+  // otherwise fall back to the kirana's own scanned translation, then English.
+  const getItemDisplayName = (item: OrderItem) => {
+    if (language === "en") return item.name;
+    const w = selectedWholesaler ?? wholesalers[0];
+    if (w) {
+      const cat = w.catalog.find(c => c.name.toLowerCase() === item.name.toLowerCase());
+      if (cat) return getItemNameInLanguage(cat, language);
+    }
+    return pickName(item, language);
   };
 
   return (
@@ -166,21 +296,69 @@ export default function ReviewScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Stats */}
-        <Animated.View entering={FadeInDown.delay(100).springify()} style={styles.statsRow}>
-          <View style={[styles.statBox, { backgroundColor: colors.available + "18" }]}>
-            <Text style={[styles.statNum, { color: colors.available }]}>{availableCount}</Text>
-            <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>{t("available")}</Text>
+        {/* Coverage at the selected supplier — restored, but plain English */}
+        {items.length > 0 && (() => {
+          const inStock = itemStocks.filter(s => s.state === "in_stock").length;
+          const low = itemStocks.filter(s => s.state === "low_stock").length;
+          const missing = itemStocks.filter(s => s.state === "not_carried" || s.state === "out_of_stock").length;
+          const allOk = missing === 0 && low === 0;
+          const color = allOk ? colors.available : missing > 0 ? colors.unavailable : "#F59E0B";
+          return (
+            <Animated.View entering={FadeInDown.delay(100).springify()} style={[styles.coverBanner, { backgroundColor: color + "14", borderColor: color + "55" }]}>
+              <Feather name={allOk ? "check-circle" : "alert-circle"} size={16} color={color} />
+              <Text style={[styles.coverText, { color }]}>
+                {inStock}/{items.length} ready at {selectedWholesaler?.name}
+                {low > 0 ? `  ·  ${low} low` : ""}
+                {missing > 0 ? `  ·  ${missing} not here` : ""}
+              </Text>
+              {topSuggestion && topSuggestion.wholesaler.id !== selectedWholesaler.id && topSuggestion.inStockCount > inStock && (
+                <TouchableOpacity onPress={() => setShowSupplierPicker(true)}>
+                  <Text style={[styles.coverLink, { color: colors.primary }]}>Better match →</Text>
+                </TouchableOpacity>
+              )}
+            </Animated.View>
+          );
+        })()}
+
+        {/* Suggested suppliers — horizontal cards, ranked by coverage > price > distance */}
+        {items.length > 0 && suggestions.length > 1 && (
+          <View>
+            <Text style={[styles.suggestTitle, { color: colors.mutedForeground }]}>Suggested shops for this list</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
+              {suggestions.map((q, idx) => {
+                const isSelected = q.wholesaler.id === selectedWholesaler.id;
+                const isRecommended = idx === 0;
+                return (
+                  <TouchableOpacity
+                    key={q.wholesaler.id}
+                    onPress={() => { setSelectedWholesaler(q.wholesaler); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                    style={[styles.suggestCard, {
+                      backgroundColor: isSelected ? colors.primary + "10" : colors.card,
+                      borderColor: isSelected ? colors.primary : colors.border,
+                    }]}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                      <Text style={[styles.suggestName, { color: colors.foreground }]} numberOfLines={1}>{q.wholesaler.name}</Text>
+                      {q.wholesaler.verified && <Feather name="shield" size={11} color={colors.available} />}
+                    </View>
+                    {isRecommended && !isSelected && (
+                      <View style={[styles.recommendBadge, { backgroundColor: colors.available + "22" }]}>
+                        <Text style={[styles.recommendBadgeText, { color: colors.available }]}>Best match</Text>
+                      </View>
+                    )}
+                    <Text style={[styles.suggestLine, { color: colors.foreground }]}>
+                      {q.inStockCount}/{items.length} in stock
+                    </Text>
+                    <Text style={[styles.suggestSub, { color: colors.mutedForeground }]}>
+                      ≈ ₹{q.total.toLocaleString()}
+                      {q.distanceKm != null ? `  ·  ${q.distanceKm.toFixed(1)} km` : ""}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
           </View>
-          <View style={[styles.statBox, { backgroundColor: colors.unavailable + "18" }]}>
-            <Text style={[styles.statNum, { color: colors.unavailable }]}>{unavailableCount}</Text>
-            <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>{t("unavailable")}</Text>
-          </View>
-          <View style={[styles.statBox, { backgroundColor: colors.primary + "18" }]}>
-            <Text style={[styles.statNum, { color: colors.primary }]}>{items.length}</Text>
-            <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>{t("total")}</Text>
-          </View>
-        </Animated.View>
+        )}
 
         {/* Wholesaler Selector */}
         <Animated.View entering={FadeInDown.delay(140).springify()} style={[styles.wholesalerCard, { backgroundColor: colors.card, borderColor: colors.primary + "40" }]}>
@@ -189,9 +367,12 @@ export default function ReviewScreen() {
               <Feather name="truck" size={20} color={colors.primary} />
             </View>
             <View style={styles.wsInfo}>
-              <Text style={[styles.wsName, { color: colors.foreground }]}>{selectedWholesaler.name}</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
+                <Text style={[styles.wsName, { color: colors.foreground }]}>{selectedWholesaler.name}</Text>
+                <VerifiedBadge verified={selectedWholesaler.verified} size="xs" />
+              </View>
               <Text style={[styles.wsSub, { color: colors.mutedForeground }]}>
-                {selectedWholesaler.distance}  •  ★ {selectedWholesaler.rating}
+                {selectedWholesaler.distance && selectedWholesaler.distance !== "Unknown" ? `${selectedWholesaler.distance}  •  ` : ""}★ {selectedWholesaler.rating}
               </Text>
               {selectedWholesaler.specialOffer && (
                 <View style={[styles.offerBadge, { backgroundColor: colors.available + "18" }]}>
@@ -217,7 +398,6 @@ export default function ReviewScreen() {
             </TouchableOpacity>
           </View>
         </Animated.View>
-
         {/* Items List */}
         <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
           {t("itemsFound")} ({items.length})
@@ -230,9 +410,18 @@ export default function ReviewScreen() {
             layout={Layout.springify()}
           >
             {editingIdx === i ? (
-              // Edit mode
+              // Edit mode — both name AND quantity editable now
               <View style={[styles.itemCardEditing, { backgroundColor: colors.primary + "10", borderColor: colors.primary }]}>
-                <Text style={[styles.editingName, { color: colors.foreground }]}>{getItemDisplayName(item.name)}</Text>
+                <Text style={[styles.editFieldLabel, { color: colors.mutedForeground }]}>Item name</Text>
+                <TextInput
+                  style={[styles.editNameInput, { borderColor: colors.primary, color: colors.foreground, backgroundColor: colors.background }]}
+                  value={editNameValue}
+                  onChangeText={setEditNameValue}
+                  placeholder="e.g. Rice, Turmeric, Haldi"
+                  placeholderTextColor={colors.mutedForeground}
+                  autoFocus
+                />
+                <Text style={[styles.editFieldLabel, { color: colors.mutedForeground, marginTop: 8 }]}>Quantity</Text>
                 <View style={styles.editRow}>
                   <TextInput
                     style={[styles.editQtyInput, { borderColor: colors.primary, color: colors.foreground, backgroundColor: colors.background }]}
@@ -240,7 +429,6 @@ export default function ReviewScreen() {
                     onChangeText={setEditQtyValue}
                     placeholder={t("qtyPlaceholder")}
                     placeholderTextColor={colors.mutedForeground}
-                    autoFocus
                   />
                   <TouchableOpacity style={[styles.saveBtn, { backgroundColor: colors.primary }]} onPress={saveEdit}>
                     <Text style={styles.saveBtnText}>{t("save")}</Text>
@@ -250,24 +438,97 @@ export default function ReviewScreen() {
                   </TouchableOpacity>
                 </View>
               </View>
-            ) : (
-              // Normal mode
-              <View style={[styles.itemCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <View style={[styles.stockDot, { backgroundColor: item.available ? colors.available : colors.unavailable }]} />
-                <View style={styles.itemCenter}>
-                  <Text style={[styles.itemName, { color: colors.foreground }]}>{getItemDisplayName(item.name)}</Text>
-                  <Text style={[styles.itemQty, { color: colors.mutedForeground }]}>{item.quantity}</Text>
+            ) : (() => {
+              // Live stock state for this item at the selected supplier.
+              const s = itemStocks[i];
+              const unit = s?.catalog?.unit ?? "";
+              // Parse the kirana's own quantity to extract the unit they
+              // typed/spoke. Used for the "wrong_unit" message ("shop sells
+              // by kg, not by pack") so the kirana knows what to change.
+              const orderedUnit = (() => {
+                const m = String(item.quantity ?? "").match(/[a-zA-Zఅ-౿अ-ॿ]+\s*$/);
+                return m ? m[0].trim() : "";
+              })();
+              const stateColor =
+                s?.state === "in_stock" ? colors.available :
+                (s?.state === "low_stock" || s?.state === "below_min_order" || s?.state === "wrong_unit") ? "#F59E0B" :
+                colors.unavailable;
+              // Localized state label — honors the kirana's selected
+              // language (English / Hindi / Telugu) and uses the qty
+              // already converted to the catalog's unit.
+              const stateLabel = s
+                ? kiranaStockLabel(
+                    (language as "en" | "te" | "hi") ?? "en",
+                    { state: s.state, onHand: s.onHand, needed: s.needed, minOrderQty: s.minOrderQty, unit, orderedUnit },
+                  )
+                : "";
+              // For not_carried items, see if there's a similar item the
+              // shop DOES stock — show as a suggestion so the kirana can
+              // pick the specific brand instead of getting auto-substituted.
+              // (We do NOT show suggestions for wrong_unit because in that
+              // case the item IS found, just in a different unit — the
+              // message already tells the user what to fix.)
+              const suggestions = s?.state === "not_carried" && selectedWholesaler
+                ? findSimilarCatalogItems(selectedWholesaler.catalog, item.name, 3)
+                : [];
+              return (
+                <View style={[styles.itemCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <View style={[styles.stockDot, { backgroundColor: stateColor }]} />
+                  <View style={styles.itemCenter}>
+                    <Text style={[styles.itemName, { color: colors.foreground }]}>{getItemDisplayName(item)}</Text>
+                    <Text style={[styles.itemQty, { color: colors.mutedForeground }]}>
+                      {item.quantity}
+                      {s?.catalog?.pricePerUnit != null ? `  ·  ₹${s.catalog.pricePerUnit}/${s.catalog.unit}` : ""}
+                    </Text>
+                    {/* Always show min-order info when the shop carries this item so the kirana never wonders why a quantity is OK or not */}
+                    {s?.catalog && s.minOrderQty > 0 && (
+                      <Text style={[styles.minOrderHint, { color: colors.mutedForeground }]}>
+                        min order: {s.minOrderQty} {s.catalog.unit} · you can order any amount from this up
+                      </Text>
+                    )}
+                    <Text style={[styles.stockReason, { color: stateColor }]}>{stateLabel}</Text>
+                    {suggestions.length > 0 && (
+                      <View style={styles.suggestionsRow}>
+                        <Text style={[styles.suggestionsLabel, { color: colors.mutedForeground }]}>
+                          {language === "hi" ? "क्या आपका मतलब था:" : language === "te" ? "మీరు అడిగినది:" : "Did you mean:"}
+                        </Text>
+                        <View style={styles.suggestionsChips}>
+                          {suggestions.map((sg, sgIdx) => (
+                            <TouchableOpacity
+                              key={sgIdx}
+                              onPress={() => {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                setItems(prev => prev.map((it, idx) => idx === i ? { ...it, name: sg.name, nameTe: sg.nameTe ?? "", nameHi: sg.nameHi ?? "" } : it));
+                              }}
+                              style={[styles.suggestionChip, { borderColor: colors.primary + "55", backgroundColor: colors.primary + "10" }]}
+                            >
+                              <Text style={[styles.suggestionChipText, { color: colors.primary }]}>{sg.name}</Text>
+                            </TouchableOpacity>
+                          ))}
+                          <TouchableOpacity
+                            onPress={() => setShowCatalogModal(true)}
+                            style={[styles.suggestionChip, { borderColor: colors.border }]}
+                          >
+                            <Feather name="list" size={11} color={colors.mutedForeground} />
+                            <Text style={[styles.suggestionChipText, { color: colors.mutedForeground, marginLeft: 4 }]}>
+                              {language === "hi" ? "पूरी सूची देखें" : language === "te" ? "మొత్తం జాబితా" : "see full list"}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    )}
+                  </View>
+                  <View style={styles.itemActions}>
+                    <TouchableOpacity style={styles.actionIconBtn} onPress={() => startEdit(i)}>
+                      <Feather name="edit-2" size={16} color={colors.primary} />
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.actionIconBtn} onPress={() => removeItem(i)}>
+                      <Feather name="trash-2" size={16} color={colors.destructive} />
+                    </TouchableOpacity>
+                  </View>
                 </View>
-                <View style={styles.itemActions}>
-                  <TouchableOpacity style={styles.actionIconBtn} onPress={() => startEdit(i)}>
-                    <Feather name="edit-2" size={16} color={colors.primary} />
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.actionIconBtn} onPress={() => removeItem(i)}>
-                    <Feather name="trash-2" size={16} color={colors.destructive} />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
+              );
+            })()}
           </Animated.View>
         ))}
 
@@ -316,6 +577,52 @@ export default function ReviewScreen() {
           value={notes}
           onChangeText={setNotes}
         />
+        <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Delivery Address</Text>
+        <TextInput
+          style={[styles.notesInput, { borderColor: colors.border, backgroundColor: colors.card, color: colors.foreground }]}
+          placeholder="Enter delivery address"
+          placeholderTextColor={colors.mutedForeground}
+          multiline
+          value={deliveryAddress}
+          onChangeText={setDeliveryAddress}
+        />
+
+        {/* Estimated bill — computed from the selected supplier's catalog. */}
+        {items.length > 0 && (() => {
+          const me = suggestions.find(s => s.wholesaler.id === selectedWholesaler.id);
+          if (!me) return null;
+          return (
+            <View style={[styles.totalCard, { backgroundColor: colors.primary + "0e", borderColor: colors.primary + "55" }]}>
+              <Text style={[styles.totalTitle, { color: colors.foreground }]}>Estimated bill</Text>
+              <View style={styles.totalRow}>
+                <Text style={[styles.totalLabel, { color: colors.mutedForeground }]}>Subtotal ({me.inStockCount + me.lowStockCount} of {items.length} items)</Text>
+                <Text style={[styles.totalValue, { color: colors.foreground }]}>₹{me.subtotal.toLocaleString()}</Text>
+              </View>
+              {me.tax > 0 && (
+                <View style={styles.totalRow}>
+                  <Text style={[styles.totalLabel, { color: colors.mutedForeground }]}>+ Tax</Text>
+                  <Text style={[styles.totalValue, { color: colors.foreground }]}>₹{me.tax.toLocaleString()}</Text>
+                </View>
+              )}
+              {me.discount > 0 && (
+                <View style={styles.totalRow}>
+                  <Text style={[styles.totalLabel, { color: colors.mutedForeground }]}>− Discount</Text>
+                  <Text style={[styles.totalValue, { color: colors.available }]}>−₹{me.discount.toLocaleString()}</Text>
+                </View>
+              )}
+              <View style={[styles.totalDivider, { backgroundColor: colors.border }]} />
+              <View style={styles.totalRow}>
+                <Text style={[styles.grandTotalLabel, { color: colors.foreground }]}>Total to pay</Text>
+                <Text style={[styles.grandTotalValue, { color: colors.primary }]}>₹{me.total.toLocaleString()}</Text>
+              </View>
+              {me.missingCount > 0 && (
+                <Text style={[styles.totalNote, { color: colors.mutedForeground }]}>
+                  {me.missingCount} item{me.missingCount > 1 ? "s" : ""} not at this shop — wholesaler may suggest a substitute or skip.
+                </Text>
+              )}
+            </View>
+          );
+        })()}
 
         {/* Send Button */}
         <TouchableOpacity
@@ -341,7 +648,7 @@ export default function ReviewScreen() {
             <View style={[styles.modalHandle, { backgroundColor: colors.border }]} />
             <Text style={[styles.modalTitle, { color: colors.foreground }]}>{t("chooseSupplier")}</Text>
             <ScrollView showsVerticalScrollIndicator={false}>
-              {WHOLESALERS.map(ws => (
+              {wholesalers.map(ws => (
                 <TouchableOpacity
                   key={ws.id}
                   style={[
@@ -404,7 +711,10 @@ export default function ReviewScreen() {
           <View style={[styles.modalSheet, { backgroundColor: colors.background }]}>
             <View style={[styles.modalHandle, { backgroundColor: colors.border }]} />
             <Text style={[styles.modalTitle, { color: colors.foreground }]}>
-              {catalogWholesaler.name} — {t("catalog")}
+              Everything at {catalogWholesaler.name}
+            </Text>
+            <Text style={{ color: colors.mutedForeground, fontSize: 12, marginBottom: 8 }}>
+              All items this wholesaler stocks. Green dot = in stock, red = out.
             </Text>
             <ScrollView showsVerticalScrollIndicator={false}>
               {catalogWholesaler.catalog.map((cat, i) => {
@@ -470,10 +780,34 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 17, fontFamily: "Inter_700Bold" },
   scroll: { flex: 1 },
   content: { padding: 16, gap: 10 },
-  statsRow: { flexDirection: "row", gap: 8 },
-  statBox: { flex: 1, borderRadius: 12, padding: 12, alignItems: "center", gap: 2 },
-  statNum: { fontSize: 22, fontFamily: "Inter_700Bold" },
-  statLabel: { fontSize: 11, fontFamily: "Inter_400Regular", textAlign: "center" },
+  warnBanner: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10 },
+  warnText: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium" },
+  coverBanner: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10 },
+  coverText: { flex: 1, fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  coverLink: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  suggestTitle: { fontSize: 12, fontFamily: "Inter_600SemiBold", marginTop: 4, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.4 },
+  suggestCard: { width: 180, borderRadius: 14, borderWidth: 1.5, padding: 12, gap: 4 },
+  suggestName: { fontSize: 14, fontFamily: "Inter_700Bold", flexShrink: 1 },
+  suggestLine: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  suggestSub: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  recommendBadge: { alignSelf: "flex-start", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  recommendBadgeText: { fontSize: 10, fontFamily: "Inter_700Bold" },
+  stockReason: { fontSize: 11, fontFamily: "Inter_600SemiBold", marginTop: 2 },
+  minOrderHint: { fontSize: 10, fontFamily: "Inter_400Regular", marginTop: 2, fontStyle: "italic" },
+  suggestionsRow: { marginTop: 6, gap: 4 },
+  suggestionsLabel: { fontSize: 11, fontFamily: "Inter_500Medium" },
+  suggestionsChips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  suggestionChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, flexDirection: "row", alignItems: "center" },
+  suggestionChipText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  totalCard: { borderWidth: 1.5, borderRadius: 16, padding: 16, gap: 8, marginTop: 6 },
+  totalTitle: { fontSize: 15, fontFamily: "Inter_700Bold", marginBottom: 4 },
+  totalRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  totalLabel: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  totalValue: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  totalDivider: { height: 1, marginVertical: 4 },
+  grandTotalLabel: { fontSize: 16, fontFamily: "Inter_700Bold" },
+  grandTotalValue: { fontSize: 22, fontFamily: "Inter_700Bold" },
+  totalNote: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 4, fontStyle: "italic" },
 
   // Wholesaler card
   wholesalerCard: { borderRadius: 16, borderWidth: 1.5, padding: 14, gap: 10 },
@@ -499,6 +833,8 @@ const styles = StyleSheet.create({
   // Edit mode
   itemCardEditing: { borderRadius: 14, borderWidth: 1.5, padding: 14, gap: 10, marginBottom: 4 },
   editingName: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  editFieldLabel: { fontSize: 11, fontFamily: "Inter_600SemiBold", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 },
+  editNameInput: { height: 42, borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 12, fontFamily: "Inter_500Medium", fontSize: 15 },
   editRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   editQtyInput: { flex: 1, height: 42, borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 12, fontSize: 15, fontFamily: "Inter_500Medium" },
   saveBtn: { height: 42, paddingHorizontal: 16, borderRadius: 10, alignItems: "center", justifyContent: "center" },
@@ -521,6 +857,9 @@ const styles = StyleSheet.create({
   // Offer badge
   offerBadge: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, alignSelf: "flex-start", marginTop: 2 },
   offerText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  compareBox: { borderRadius: 12, borderWidth: 1, padding: 12, gap: 4 },
+  compareTitle: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  compareSub: { fontSize: 12, fontFamily: "Inter_400Regular" },
 
   // Modal
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },

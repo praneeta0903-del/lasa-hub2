@@ -15,13 +15,18 @@ import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
+import { useOrders } from "@/context/OrderContext";
 import { useColors } from "@/hooks/useColors";
+import { useWholesalers } from "@/context/WholesalersContext";
 
 export default function KiranaHomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
   const { t, language } = useLanguage();
+  const { wholesalers } = useWholesalers();
+  const { orders } = useOrders();
+  const hasOrderHistory = orders.length > 0;
   const [showAccount, setShowAccount] = useState(false);
 
   const hour = new Date().getHours();
@@ -33,6 +38,16 @@ export default function KiranaHomeScreen() {
   const phoneLabel = language === "te" ? "ఫోన్ నంబర్" : language === "hi" ? "फोन नंबर" : "Phone";
   const roleLabel = language === "te" ? "పాత్ర" : language === "hi" ? "भूमिका" : "Role";
   const kiranaLabel = language === "te" ? "కిరాణా దుకాణం" : language === "hi" ? "किराना दुकान" : "Kirana Shop";
+
+  // Show the kirana's MOST RECENT supplier from order history, not an arbitrary
+  // alphabetical default. Hide the line entirely if no orders yet.
+  const lastOrder = orders.length > 0
+    ? [...orders].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
+    : null;
+  const lastSupplier = lastOrder
+    ? wholesalers.find(w => w.id === lastOrder.wholesalerId)
+    : null;
+  const supplierLineText = lastSupplier ? `Last ordered from: ${lastSupplier.name}` : null;
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -55,10 +70,12 @@ export default function KiranaHomeScreen() {
             <Feather name="user" size={20} color="#FFF" />
           </TouchableOpacity>
         </View>
-        <View style={styles.supplierRow}>
-          <Feather name="truck" size={13} color="rgba(255,255,255,0.7)" />
-          <Text style={styles.supplierText}>{t("supplier")}: Suresh Wholesale</Text>
-        </View>
+        {supplierLineText && (
+          <View style={styles.supplierRow}>
+            <Feather name="truck" size={13} color="rgba(255,255,255,0.7)" />
+            <Text style={styles.supplierText}>{supplierLineText}</Text>
+          </View>
+        )}
       </Animated.View>
 
       <ScrollView
@@ -100,18 +117,20 @@ export default function KiranaHomeScreen() {
           </TouchableOpacity>
         </Animated.View>
 
-        {/* Quick Reorder */}
-        <Animated.View entering={FadeInUp.delay(330).springify()}>
-          <TouchableOpacity
-            style={[styles.quickBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}
-            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/review?mode=quick" as any); }}
-            activeOpacity={0.82}
-          >
-            <Feather name="refresh-cw" size={20} color={colors.accent} />
-            <Text style={[styles.quickBtnText, { color: colors.accent }]}>{t("quickReorder")}</Text>
-            <Feather name="chevron-right" size={18} color={colors.accent} />
-          </TouchableOpacity>
-        </Animated.View>
+        {/* Quick Reorder — only shown if there's an actual last order */}
+        {hasOrderHistory && (
+          <Animated.View entering={FadeInUp.delay(330).springify()}>
+            <TouchableOpacity
+              style={[styles.quickBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/review?mode=quick" as any); }}
+              activeOpacity={0.82}
+            >
+              <Feather name="refresh-cw" size={20} color={colors.accent} />
+              <Text style={[styles.quickBtnText, { color: colors.accent }]}>{t("quickReorder")}</Text>
+              <Feather name="chevron-right" size={18} color={colors.accent} />
+            </TouchableOpacity>
+          </Animated.View>
+        )}
 
         {/* Tip */}
         <Animated.View entering={FadeInUp.delay(390).springify()} style={[styles.tipBox, { backgroundColor: colors.secondary }]}>
@@ -146,7 +165,7 @@ export default function KiranaHomeScreen() {
 
             <TouchableOpacity
               style={[styles.logoutBtn, { backgroundColor: "#FEE2E2", borderColor: "#FECACA" }]}
-              onPress={() => { setShowAccount(false); logout(); }}
+              onPress={async () => { setShowAccount(false); await logout(); }}
               activeOpacity={0.85}
             >
               <Feather name="log-out" size={18} color="#DC2626" />

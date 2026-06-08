@@ -1,23 +1,23 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import Animated, { FadeIn, FadeInDown, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { checkInventoryAvailability } from "@/context/OrderContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useColors } from "@/hooks/useColors";
 import { apiPost } from "@/constants/api";
+import { pickName } from "@/data/wholesalers";
 
-interface ParsedItem { name: string; quantity: string; available: boolean; }
-
-const FALLBACK_ITEMS: ParsedItem[] = [
-  { name: "Chilli Powder", quantity: "1 kg", available: true },
-  { name: "Turmeric", quantity: "500 gm", available: true },
-  { name: "Coconut Oil", quantity: "1 L", available: true },
-  { name: "Salt", quantity: "2 kg", available: true },
-];
+interface ParsedItem {
+  name: string;
+  nameTe?: string;
+  nameHi?: string;
+  sourceLanguage?: "en" | "te" | "hi" | null;
+  quantity: string;
+  available: boolean;
+}
 
 declare global {
   interface Window {
@@ -43,17 +43,27 @@ export default function VoiceOrderScreen() {
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [transcript, setTranscript] = useState("");
   const [parseError, setParseError] = useState<string | null>(null);
-  const [speechSupported, setSpeechSupported] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(true);
+  const [permissionState, setPermissionState] = useState<"unknown" | "granted" | "denied">("unknown");
 
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Refs are critical: the `onresult` callback closes over state at the moment
+  // it's registered, so reading `transcript` from state after stop gives the
+  // value at the time the recognizer started — i.e. empty string. Accumulate
+  // into a ref instead and copy to state for display.
+  const transcriptRef = useRef("");
   const recognitionRef = useRef<any>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stoppingRef = useRef(false);
 
   const pulseScale = useSharedValue(1);
 
   useEffect(() => {
-    if (Platform.OS === "web") {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
       const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
       setSpeechSupported(!!SpeechRec);
+    } else {
+      // Native: we rely on a different transport (not implemented yet)
+      setSpeechSupported(false);
     }
   }, []);
 
@@ -69,52 +79,34 @@ export default function VoiceOrderScreen() {
     transform: [{ scale: pulseScale.value }],
   }));
 
-  const startRecording = () => {
-    setIsRecording(true);
-    setTranscript("");
-    setRecordSeconds(0);
-    setParseError(null);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    timerRef.current = setInterval(() => setRecordSeconds(s => s + 1), 1000);
-
-    if (Platform.OS === "web") {
-      const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (SpeechRec) {
-        const rec = new SpeechRec();
-        rec.continuous = true;
-        rec.interimResults = true;
-        rec.lang = getSpeechLang(language);
-        rec.onresult = (e: any) => {
-          let final = "";
-          for (let i = 0; i < e.results.length; i++) {
-            if (e.results[i].isFinal) final += e.results[i][0].transcript + " ";
-          }
-          if (final) setTranscript(final.trim());
-        };
-        rec.start();
-        recognitionRef.current = rec;
-      }
-    }
+  // ── Speech engine helpers ────────────────────────────────────────────────
+  const cleanupTimer = () => {
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
   };
 
-  const stopRecording = async () => {
-    if (timerRef.current) clearInterval(timerRef.current);
+  const stopRecognitionAndProcess = useCallback(async () => {
+    if (stoppingRef.current) return;
+    stoppingRef.current = true;
+    cleanupTimer();
     setIsRecording(false);
+    // Tell the engine to stop; it will fire onend asynchronously.
+    try { recognitionRef.current?.stop?.(); } catch {}
+    // Give onresult a moment to emit any final segment.
+    await new Promise((r) => setTimeout(r, 250));
+    recognitionRef.current = null;
 
-    let finalTranscript = transcript;
+    const finalTranscript = transcriptRef.current.trim();
+    setTranscript(finalTranscript);
 
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
-      await new Promise(r => setTimeout(r, 500));
-      finalTranscript = transcript;
-    }
-
-    if (!finalTranscript.trim()) {
-      // No speech detected — use demo items
-      setParseError("No speech detected. Showing demo items.");
-      const items = FALLBACK_ITEMS.map(i => ({ ...i, available: checkInventoryAvailability(i.name) }));
-      setParsedItems(items);
+    if (!finalTranscript) {
+      setParseError(
+        language === "te"
+          ? "మాట వినపడలేదు. మళ్ళీ ప్రయత్నించండి."
+          : language === "hi"
+          ? "आवाज़ नहीं सुनाई दी। फिर से कोशिश करें।"
+          : "Didn't catch that. Tap the mic and speak clearly close to the phone.",
+      );
+      stoppingRef.current = false;
       return;
     }
 
@@ -122,24 +114,131 @@ export default function VoiceOrderScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
     try {
-      const result = await apiPost("/api/ai/parse-voice", { transcript: finalTranscript });
-      if (result.items && Array.isArray(result.items) && result.items.length > 0) {
+      const result = await apiPost<{ items: any[]; sourceLanguage: string | null }>(
+        "/api/ai/parse-voice",
+        { transcript: finalTranscript, language },
+      );
+      if (Array.isArray(result.items) && result.items.length > 0) {
         const items: ParsedItem[] = result.items.map((i: any) => ({
           name: i.name ?? "Item",
+          nameTe: i.nameTe ?? "",
+          nameHi: i.nameHi ?? "",
+          sourceLanguage: (result.sourceLanguage as any) ?? null,
           quantity: i.quantity ?? "1",
-          available: checkInventoryAvailability(i.name ?? ""),
+          available: true,
         }));
         setParsedItems(items);
       } else {
-        throw new Error("No items parsed");
+        throw new Error("AI returned no items");
       }
     } catch (err: any) {
-      setParseError(`AI parsing failed: ${err?.message ?? "unknown error"}. Showing demo data.`);
-      const items = FALLBACK_ITEMS.map(i => ({ ...i, available: checkInventoryAvailability(i.name) }));
-      setParsedItems(items);
+      setParseError(`Couldn't understand the order: ${err?.message ?? "unknown"}. Try again or use the photo / manual option.`);
+    } finally {
+      setIsProcessing(false);
+      stoppingRef.current = false;
     }
-    setIsProcessing(false);
-  };
+  }, [language]);
+
+  const startRecording = useCallback(async () => {
+    setParseError(null);
+    setTranscript("");
+    transcriptRef.current = "";
+    setRecordSeconds(0);
+
+    if (Platform.OS !== "web") {
+      setParseError("Voice on mobile native is not yet wired. Use the photo option or open the web app.");
+      return;
+    }
+    if (typeof window === "undefined") return;
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRec) {
+      setSpeechSupported(false);
+      setParseError("This browser doesn't support voice input. Try Chrome or Edge.");
+      return;
+    }
+
+    // Pre-check microphone permission so we can show a meaningful error.
+    try {
+      const stream = await navigator.mediaDevices?.getUserMedia({ audio: true });
+      stream.getTracks().forEach(t => t.stop());
+      setPermissionState("granted");
+    } catch (err: any) {
+      setPermissionState("denied");
+      setParseError(
+        err?.name === "NotAllowedError"
+          ? "Microphone access blocked. Click the lock icon in your browser address bar and allow microphone for this page."
+          : `Couldn't access the microphone: ${err?.message ?? "unknown"}.`,
+      );
+      return;
+    }
+
+    const rec = new SpeechRec();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = getSpeechLang(language);
+
+    rec.onresult = (e: any) => {
+      // Accumulate every final segment we see into the ref so we never lose
+      // text just because state hasn't flushed yet when stop is pressed.
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const res = e.results[i];
+        if (res.isFinal) {
+          const txt = (res[0]?.transcript ?? "").trim();
+          if (txt) transcriptRef.current = (transcriptRef.current + " " + txt).trim();
+        } else {
+          interim += " " + (res[0]?.transcript ?? "");
+        }
+      }
+      // Show live caption while speaking — concat ref + current interim
+      const live = (transcriptRef.current + " " + interim).trim();
+      setTranscript(live);
+    };
+
+    rec.onerror = (e: any) => {
+      console.warn("SpeechRecognition error:", e?.error);
+      if (e?.error === "not-allowed" || e?.error === "service-not-allowed") {
+        setParseError("Microphone permission denied. Allow it in your browser to speak the order.");
+      } else if (e?.error === "no-speech") {
+        // Browser fires this when there's silence; let our own logic handle empty.
+      } else if (e?.error === "audio-capture") {
+        setParseError("No microphone detected. Plug one in and try again.");
+      } else if (e?.error && e.error !== "aborted") {
+        setParseError(`Speech recognition error: ${e.error}. Try again.`);
+      }
+    };
+
+    rec.onend = () => {
+      // The browser auto-stops after silence even if we never called stop().
+      // If the user hasn't manually stopped yet, run the same post-stop flow.
+      if (recognitionRef.current && !stoppingRef.current) {
+        stopRecognitionAndProcess();
+      }
+    };
+
+    recognitionRef.current = rec;
+
+    try {
+      rec.start();
+      setIsRecording(true);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      timerRef.current = setInterval(() => setRecordSeconds(s => s + 1), 1000);
+    } catch (err: any) {
+      // start() throws if already started or in invalid state.
+      console.warn("SpeechRecognition.start failed:", err);
+      setParseError(`Couldn't start microphone: ${err?.message ?? "unknown"}.`);
+      recognitionRef.current = null;
+    }
+  }, [language, stopRecognitionAndProcess]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      cleanupTimer();
+      try { recognitionRef.current?.stop?.(); } catch {}
+      recognitionRef.current = null;
+    };
+  }, []);
 
   const handleProceed = () => {
     if (!parsedItems) return;
@@ -147,8 +246,10 @@ export default function VoiceOrderScreen() {
     router.push(`/review?items=${encoded}&mode=voice` as any);
   };
 
-  const formatTime = (s: number) => `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
+  const formatTime = (s: number) =>
+    `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
 
+  // ── Render ───────────────────────────────────────────────────────────────
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <Animated.View
@@ -172,10 +273,23 @@ export default function VoiceOrderScreen() {
             {Platform.OS === "web" && !speechSupported && (
               <View style={[styles.warnBox, { backgroundColor: "#FEF3C7", borderColor: "#F59E0B" }]}>
                 <Feather name="alert-triangle" size={16} color="#F59E0B" />
-                <Text style={styles.warnText}>Speech recognition not supported in this browser. Try Chrome.</Text>
+                <Text style={styles.warnText}>
+                  Voice input needs Chrome or Edge on a computer or Android. Safari and many in-app browsers don't support it. Use the photo option meanwhile.
+                </Text>
               </View>
             )}
-            <Text style={[styles.instruction, { color: colors.mutedForeground }]}>{t("holdToRecord")}</Text>
+            {parseError && (
+              <View style={[styles.warnBox, { backgroundColor: "#FEE2E2", borderColor: "#DC2626" }]}>
+                <Feather name="alert-triangle" size={16} color="#DC2626" />
+                <Text style={[styles.warnText, { color: "#7F1D1D" }]}>{parseError}</Text>
+              </View>
+            )}
+
+            <Text style={[styles.instruction, { color: colors.mutedForeground }]}>
+              {isRecording
+                ? language === "te" ? "ఇప్పుడు మాట్లాడండి…" : language === "hi" ? "अब बोलिए…" : "Speak now…"
+                : language === "te" ? "మైక్ నొక్కండి, ఆపై ఆపడానికి మళ్ళీ నొక్కండి" : language === "hi" ? "माइक दबाएँ, फिर रोकने के लिए दोबारा दबाएँ" : "Tap the mic to start, tap again to stop"}
+            </Text>
             <Text style={[styles.example, { color: colors.mutedForeground }]}>{t("voiceExample")}</Text>
 
             {transcript ? (
@@ -188,9 +302,9 @@ export default function VoiceOrderScreen() {
             <View style={styles.micContainer}>
               <Animated.View style={pulseStyle}>
                 <TouchableOpacity
-                  style={[styles.micBtn, { backgroundColor: isRecording ? colors.destructive : colors.primary }]}
-                  onPressIn={startRecording}
-                  onPressOut={stopRecording}
+                  style={[styles.micBtn, { backgroundColor: isRecording ? colors.destructive : colors.primary, opacity: speechSupported ? 1 : 0.5 }]}
+                  onPress={isRecording ? stopRecognitionAndProcess : startRecording}
+                  disabled={!speechSupported}
                   activeOpacity={0.9}
                 >
                   <Feather name={isRecording ? "stop-circle" : "mic"} size={52} color="#FFF" />
@@ -200,10 +314,14 @@ export default function VoiceOrderScreen() {
                 <Animated.View entering={FadeIn.springify()} style={styles.recordingInfo}>
                   <View style={[styles.redDot, { backgroundColor: colors.destructive }]} />
                   <Text style={[styles.recordingTime, { color: colors.foreground }]}>{formatTime(recordSeconds)}</Text>
-                  <Text style={[styles.recordingHint, { color: colors.mutedForeground }]}>{t("releaseToStop")}</Text>
+                  <Text style={[styles.recordingHint, { color: colors.mutedForeground }]}>
+                    {language === "te" ? "ఆపడానికి నొక్కండి" : language === "hi" ? "रोकने के लिए दबाएँ" : "Tap to stop"}
+                  </Text>
                 </Animated.View>
               ) : (
-                <Text style={[styles.micHint, { color: colors.mutedForeground }]}>{t("holdToRecord")}</Text>
+                <Text style={[styles.micHint, { color: colors.mutedForeground }]}>
+                  {language === "te" ? "మైక్ నొక్కండి" : language === "hi" ? "माइक दबाएँ" : "Tap to start"}
+                </Text>
               )}
             </View>
           </Animated.View>
@@ -232,7 +350,7 @@ export default function VoiceOrderScreen() {
             {parsedItems.map((item, i) => (
               <View key={i} style={[styles.itemRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <View style={styles.itemLeft}>
-                  <Text style={[styles.itemName, { color: colors.foreground }]}>{item.name}</Text>
+                  <Text style={[styles.itemName, { color: colors.foreground }]}>{pickName(item, language)}</Text>
                   <Text style={[styles.itemQty, { color: colors.mutedForeground }]}>{item.quantity}</Text>
                 </View>
                 <View style={[styles.dot, { backgroundColor: item.available ? colors.available : colors.unavailable }]} />
@@ -242,7 +360,7 @@ export default function VoiceOrderScreen() {
               <Text style={styles.proceedBtnText}>{t("reviewTitle")}</Text>
               <Feather name="arrow-right" size={20} color="#FFF" />
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => { setParsedItems(null); setTranscript(""); setRecordSeconds(0); setParseError(null); }} style={styles.retakeBtn}>
+            <TouchableOpacity onPress={() => { setParsedItems(null); setTranscript(""); transcriptRef.current = ""; setRecordSeconds(0); setParseError(null); }} style={styles.retakeBtn}>
               <Text style={[styles.retakeText, { color: colors.mutedForeground }]}>{t("reRecord")}</Text>
             </TouchableOpacity>
           </Animated.View>

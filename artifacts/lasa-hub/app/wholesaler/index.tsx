@@ -1,10 +1,11 @@
 import { Feather } from "@expo/vector-icons";
-import { router } from "expo-router";
-import React, { useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import React, { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Platform, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { OrderCard } from "@/components/OrderCard";
+import { WholesalerTabBar } from "@/components/WholesalerTabBar";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { type Order, useOrders } from "@/context/OrderContext";
@@ -15,13 +16,17 @@ const STATUS_TABS = ["all", "pending", "confirmed", "out_for_delivery", "deliver
 export default function WholesalerDashboard() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
+  useFocusEffect(useCallback(() => { refreshUser(); }, [refreshUser]));
   const { t } = useLanguage();
-  const { getOrdersByWholesaler, isLoading, refreshOrders } = useOrders();
+  const { getOrdersByWholesaler, isLoading, refreshOrders, startPolling, stopPolling } = useOrders();
   const [activeTab, setActiveTab] = useState<string>("all");
   const [refreshing, setRefreshing] = useState(false);
 
-  const allOrders = getOrdersByWholesaler(user?.shopName === "Suresh Wholesale" ? "w001" : user?.phone ?? "w001");
+  useEffect(() => { startPolling(); return () => stopPolling(); }, [startPolling, stopPolling]);
+
+  const wholesalerId = user?.wholesalerId ?? "";
+  const allOrders = getOrdersByWholesaler(wholesalerId);
   const filtered: Order[] = activeTab === "all" ? allOrders : allOrders.filter(o => o.status === activeTab);
   const pendingCount = allOrders.filter(o => o.status === "pending").length;
 
@@ -50,7 +55,7 @@ export default function WholesalerDashboard() {
             <Text style={styles.headerLabel}>{t("wholesaleTitle")}</Text>
             <Text style={styles.headerShop}>{user?.shopName ?? "Aapki Dukaan"}</Text>
           </View>
-          <TouchableOpacity onPress={logout} style={styles.logoutBtn}>
+          <TouchableOpacity onPress={async () => { await logout(); }} style={styles.logoutBtn}>
             <Feather name="log-out" size={20} color="rgba(255,255,255,0.8)" />
           </TouchableOpacity>
         </View>
@@ -63,6 +68,8 @@ export default function WholesalerDashboard() {
           </View>
         )}
       </Animated.View>
+
+      <WholesalerTabBar />
 
       <ScrollView
         horizontal

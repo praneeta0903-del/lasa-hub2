@@ -19,16 +19,24 @@ import { checkInventoryAvailability } from "@/context/OrderContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useColors } from "@/hooks/useColors";
 import { apiPost } from "@/constants/api";
+import { pickName } from "@/data/wholesalers";
+import { SampleListCard } from "@/components/SampleListCard";
 
-interface ParsedItem { name: string; quantity: string; available: boolean; }
+interface ParsedItem {
+  name: string;
+  nameTe?: string;
+  nameHi?: string;
+  sourceLanguage?: "en" | "te" | "hi" | null;
+  quantity: string;
+  available: boolean;
+}
 
-const FALLBACK_ITEMS = [
-  { name: "Toor Dal", quantity: "5 kg" },
-  { name: "Rice Basmati", quantity: "10 kg" },
-  { name: "Sunflower Oil", quantity: "2 L" },
-  { name: "Sugar", quantity: "3 kg" },
-  { name: "Tea Powder", quantity: "500 gm" },
-];
+// NOTE: We deliberately do NOT keep a hard-coded fallback item list.
+// Showing fake items (Toor Dal / Rice / Sunflower Oil) when Gemini fails
+// was actively misleading — kiranas thought the AI had read their list
+// and proceeded to order things they never wrote. If the AI fails we now
+// surface a real error and let the user retake the photo, type items
+// manually, or use the voice option.
 
 async function imageUriToBase64(uri: string): Promise<{ base64: string; mimeType: string }> {
   if (Platform.OS === "web") {
@@ -57,7 +65,7 @@ async function imageUriToBase64(uri: string): Promise<{ base64: string; mimeType
 export default function ScanOrderScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [parsedItems, setParsedItems] = useState<ParsedItem[] | null>(null);
@@ -66,8 +74,8 @@ export default function ScanOrderScreen() {
   const pickImage = async (fromCamera: boolean) => {
     try {
       const fn = fromCamera ? ImagePicker.launchCameraAsync : ImagePicker.launchImageLibraryAsync;
-      const result = await fn({ mediaTypes: ["images"], quality: 0.85, base64: false });
-      if (!result.canceled && result.assets[0]) {
+      const result = await fn({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.85, base64: false });
+      if (!result.canceled && result.assets && result.assets[0]) {
         const uri = result.assets[0].uri;
         setImageUri(uri);
         setParsedItems(null);
@@ -75,6 +83,7 @@ export default function ScanOrderScreen() {
         analyzeImage(uri);
       }
     } catch (err) {
+      console.error("ImagePicker error:", err);
       setAnalysisError("Camera error. Please try again.");
     }
   };
@@ -86,13 +95,18 @@ export default function ScanOrderScreen() {
 
     try {
       const { base64, mimeType } = await imageUriToBase64(uri);
-      const result = await apiPost("/api/ai/analyze-image", { imageBase64: base64, mimeType });
+      const result = await apiPost<{ items: any[]; sourceLanguage: string | null }>("/api/ai/analyze-image", { imageBase64: base64, mimeType });
 
       if (result.items && Array.isArray(result.items) && result.items.length > 0) {
         const items: ParsedItem[] = result.items.map((i: any) => ({
           name: i.name ?? "Unknown Item",
+          nameTe: i.nameTe ?? "",
+          nameHi: i.nameHi ?? "",
+          sourceLanguage: (result.sourceLanguage as any) ?? null,
           quantity: i.quantity ?? "1",
-          available: checkInventoryAvailability(i.name ?? ""),
+          // Real availability comes from the catalog match on the review screen;
+          // mark true here so items are shown until reconciled.
+          available: true,
         }));
         setParsedItems(items);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -100,13 +114,21 @@ export default function ScanOrderScreen() {
         throw new Error("No items detected");
       }
     } catch (err: any) {
-      console.warn("Gemini analysis failed, using fallback:", err?.message);
-      setAnalysisError("AI analysis failed — using demo data. Check your image quality.");
-      const items: ParsedItem[] = FALLBACK_ITEMS.map(i => ({
-        ...i,
-        available: checkInventoryAvailability(i.name),
-      }));
-      setParsedItems(items);
+      console.warn("Gemini analysis failed:", err?.message);
+      // Differentiate quota/throttling from a genuinely unreadable image —
+      // the message we show drives different user behaviour (wait & retry
+      // vs retake the photo).
+      const msg = String(err?.message ?? "");
+      const isQuota = /429|quota|busy|rate/i.test(msg);
+      setAnalysisError(
+        isQuota
+          ? "AI is busy right now. Please wait a minute and try again — or use voice order instead."
+          : "Couldn't read the photo. Try a clearer, well-lit shot — or use voice order instead.",
+      );
+      // CRITICAL: do NOT seed fake items here. An empty parsedItems leaves
+      // the user on the scan screen with the error banner — they can retake
+      // or go back to the home screen and use voice / manual entry.
+      setParsedItems(null);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     }
     setIsAnalyzing(false);
@@ -138,13 +160,14 @@ export default function ScanOrderScreen() {
       >
         {!imageUri ? (
           <Animated.View entering={FadeInDown.delay(100).springify()} style={styles.pickSection}>
+            <SampleListCard variant="shopping" />
             <View style={[styles.previewBox, { borderColor: colors.border, backgroundColor: colors.secondary }]}>
               <Feather name="camera" size={64} color={colors.primary} />
               <Text style={[styles.previewHint, { color: colors.mutedForeground }]}>{t("photoHint")}</Text>
               <Text style={[styles.previewSub, { color: colors.mutedForeground }]}>
-                {t("language") === "te"
+                {language === "te"
                   ? "స్పష్టంగా మరియు మంచి వెలుతురులో ఫోటో తీయండి"
-                  : t("language") === "hi"
+                  : language === "hi"
                   ? "साफ और अच्छी रोशनी में फोटो लें"
                   : "Take a clear photo in good lighting for best results"}
               </Text>
@@ -193,7 +216,7 @@ export default function ScanOrderScreen() {
                     style={[styles.itemRow, { backgroundColor: colors.card, borderColor: colors.border }]}
                   >
                     <View style={styles.itemLeft}>
-                      <Text style={[styles.itemName, { color: colors.foreground }]}>{item.name}</Text>
+                      <Text style={[styles.itemName, { color: colors.foreground }]}>{pickName(item, language)}</Text>
                       <Text style={[styles.itemQty, { color: colors.mutedForeground }]}>{item.quantity}</Text>
                     </View>
                     <View style={[styles.dot, { backgroundColor: item.available ? colors.available : colors.unavailable }]} />
@@ -212,6 +235,42 @@ export default function ScanOrderScreen() {
                   style={styles.retakeBtn}
                 >
                   <Text style={[styles.retakeText, { color: colors.mutedForeground }]}>{t("retakePhoto")}</Text>
+                </TouchableOpacity>
+              </Animated.View>
+            ) : analysisError ? (
+              // AI couldn't read the photo (quota or unreadable). Tell the
+              // user clearly and give them three ways out: retry the same
+              // photo, retake a clearer one, or type the order by hand.
+              <Animated.View entering={FadeInDown.springify()}>
+                <View style={[styles.errorBox, { backgroundColor: "#FEF3C7", borderColor: "#F59E0B" }]}>
+                  <Feather name="alert-triangle" size={16} color="#F59E0B" />
+                  <Text style={styles.errorBoxText}>{analysisError}</Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.proceedBtn, { backgroundColor: colors.primary, marginTop: 12 }]}
+                  onPress={() => imageUri && analyzeImage(imageUri)}
+                  activeOpacity={0.85}
+                >
+                  <Feather name="refresh-cw" size={18} color="#FFF" />
+                  <Text style={styles.proceedBtnText}>
+                    {language === "te" ? "మళ్ళీ ప్రయత్నించండి" : language === "hi" ? "फिर से कोशिश करें" : "Try again"}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.galleryBtn, { backgroundColor: colors.secondary, borderColor: colors.border, marginTop: 8 }]}
+                  onPress={() => { setImageUri(null); setParsedItems(null); setAnalysisError(null); }}
+                  activeOpacity={0.85}
+                >
+                  <Feather name="camera" size={18} color={colors.accent} />
+                  <Text style={[styles.galleryBtnText, { color: colors.accent }]}>{t("retakePhoto")}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => router.replace("/voice-order" as any)}
+                  style={[styles.retakeBtn, { marginTop: 4 }]}
+                >
+                  <Text style={[styles.retakeText, { color: colors.primary }]}>
+                    {language === "te" ? "వాయిస్ ఆర్డర్ ఉపయోగించండి →" : language === "hi" ? "वॉइस ऑर्डर का उपयोग करें →" : "Use voice order instead →"}
+                  </Text>
                 </TouchableOpacity>
               </Animated.View>
             ) : null}

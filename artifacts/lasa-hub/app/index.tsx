@@ -25,7 +25,7 @@ type Step = "language" | "role" | "phone" | "otp" | "name";
 export default function LoginScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { sendOtp, verifyOtp, completeProfile, generatedOtp, selectedRole, setRole } = useAuth();
+  const { sendOtp, verifyOtp, completeProfile, loginExistingUser, generatedOtp, selectedRole, setRole } = useAuth();
   const { setLanguage, t, language } = useLanguage();
 
   const [step, setStep] = useState<Step>("language");
@@ -54,10 +54,28 @@ export default function LoginScreen() {
     }
     setError("");
     setLoading(true);
-    await sendOtp(phone);
-    setLoading(false);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setStep("otp");
+    try {
+      await sendOtp(phone);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setStep("otp");
+    } catch (err: any) {
+      // Server returns a precise message + retryAfterSec for each rate-limit
+      // reason (cooldown / phone_limit / ip_limit). Prefer the server message
+      // verbatim — it's already user-friendly and tells the user exactly how
+      // long to wait. Only fall back to a generic message when nothing came
+      // through (e.g. network down).
+      const msg = String(err?.message ?? "");
+      if (msg) {
+        setError(msg);
+      } else if (/network|fetch|failed to fetch/i.test(msg)) {
+        setError("Couldn't reach the server. Check your internet and try again.");
+      } else {
+        setError("Couldn't send OTP. Please try again.");
+      }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleVerifyOtp = async () => {
@@ -68,12 +86,37 @@ export default function LoginScreen() {
     setError("");
     setLoading(true);
     const ok = await verifyOtp(phone, otp, selectedRole);
-    setLoading(false);
     if (!ok) {
+      setLoading(false);
       setError(t("wrongOtp"));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       return;
     }
+
+    try {
+      const { user: existingUser } = await import("@/constants/api").then(m => m.apiGet<{ user: import("@/context/AuthContext").User }>(`/api/users/${encodeURIComponent(phone)}`));
+      if (existingUser) {
+        if (existingUser.role !== selectedRole) {
+          setLoading(false);
+          setError(`This number is registered as a ${existingUser.role}. Please switch roles on the first screen.`);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          return;
+        }
+        await loginExistingUser(existingUser);
+        setLoading(false);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        if (selectedRole === "wholesaler") {
+          router.replace("/wholesaler" as any);
+        } else {
+          router.replace("/(tabs)");
+        }
+        return;
+      }
+    } catch {
+      // User doesn't exist or network error, proceed to name step
+    }
+
+    setLoading(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setStep("name");
   };
@@ -231,11 +274,22 @@ export default function LoginScreen() {
               {t("otpSentTo")} +91 {phone}
             </Text>
             {generatedOtp ? (
-              <Animated.View entering={FadeIn.springify()} style={[styles.otpPreviewBox, { backgroundColor: colors.secondary }]}>
-                <Text style={[styles.otpPreviewLabel, { color: colors.mutedForeground }]}>
-                  {language === "te" ? "OTP (demo):" : language === "hi" ? "OTP (demo):" : "OTP (demo):"}
+              <Animated.View entering={FadeIn.springify()} style={[styles.otpPreviewBox, { backgroundColor: "#FEF3C7", borderColor: "#F59E0B", borderWidth: 1 }]}>
+                <Text style={[styles.otpPreviewLabel, { color: "#92400E" }]}>
+                  {language === "te"
+                    ? "SMS పంపలేకపోయాము — టెస్ట్ కోసం OTP:"
+                    : language === "hi"
+                    ? "SMS नहीं भेज सके — टेस्ट के लिए OTP:"
+                    : "Couldn't send SMS — fallback OTP for testing:"}
                 </Text>
-                <Text style={[styles.otpPreviewCode, { color: colors.primary }]}>{generatedOtp}</Text>
+                <Text style={[styles.otpPreviewCode, { color: "#92400E" }]}>{generatedOtp}</Text>
+                <Text style={{ fontSize: 10, color: "#92400E", marginTop: 4, fontFamily: "Inter_400Regular" }}>
+                  {language === "te"
+                    ? "Twilio రోజువారీ పరిమితి దాటింది లేదా అకౌంట్ సెటప్ చేయబడలేదు"
+                    : language === "hi"
+                    ? "Twilio की रोज़ की लिमिट खत्म हो गई या अकाउंट सेट नहीं है"
+                    : "Twilio daily limit hit or account not set up — top up to send real SMS"}
+                </Text>
               </Animated.View>
             ) : null}
             <TextInput

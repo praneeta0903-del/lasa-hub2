@@ -5,7 +5,10 @@ import { Tabs } from "expo-router";
 import { Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
 import { SymbolView } from "expo-symbols";
 import React from "react";
+import { useEffect } from "react";
 import { Platform, StyleSheet, View, useColorScheme } from "react-native";
+import { router } from "expo-router";
+import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
 
 function NativeTabLayout() {
@@ -85,6 +88,17 @@ function ClassicTabLayout() {
 }
 
 export default function TabLayout() {
+  const { user, isLoading } = useAuth();
+  useEffect(() => {
+    if (isLoading) return;
+    if (!user) {
+      router.replace("/");
+      return;
+    }
+    if (user.role !== "kirana") {
+      router.replace("/wholesaler");
+    }
+  }, [user, isLoading]);
   if (isLiquidGlassAvailable()) return <NativeTabLayout />;
   return <ClassicTabLayout />;
 }

@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import React from "react";
-import { Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StockIndicator } from "@/components/StockIndicator";
@@ -39,7 +39,7 @@ export default function OrderDetailScreen() {
   const insets = useSafeAreaInsets();
   const { t } = useLanguage();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { orders } = useOrders();
+  const { orders, submitOrderRating } = useOrders();
   const order = orders.find(o => o.id === id);
 
   if (!order) return (
@@ -50,6 +50,15 @@ export default function OrderDetailScreen() {
 
   const statusColor = STATUS_COLORS[order.status];
   const date = new Date(order.createdAt);
+  const hasRating = /\[rating:(\d)\]/i.test(order.notes ?? "");
+  const onRate = async (rating: number) => {
+    try {
+      await submitOrderRating(order.id, rating);
+      Alert.alert("", "Thanks! Your rating has been saved.");
+    } catch (err) {
+      Alert.alert("", "Could not submit rating right now. Please try again.");
+    }
+  };
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -104,13 +113,19 @@ export default function OrderDetailScreen() {
                 <View>
                   <Text style={[styles.infoLabel, { color: colors.mutedForeground }]}>{t("totalAmount")}</Text>
                   <Text style={[styles.infoValue, { color: colors.foreground }]}>
-                    ₹{order.totalAmount}{order.discount ? ` (₹${order.discount} off)` : ""}
+                    ₹{order.totalAmount}{order.discount ? ` (₹${order.discount} off)` : ""}{order.tax ? ` + tax ₹${order.tax}` : ""}
                   </Text>
                 </View>
               </View>
             )}
           </Animated.View>
         )}
+        {order.deliveryAddress ? (
+          <View style={[styles.noteBox, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+            <Feather name="map-pin" size={15} color={colors.mutedForeground} />
+            <Text style={[styles.noteText, { color: colors.foreground }]}>{order.deliveryAddress}</Text>
+          </View>
+        ) : null}
 
         {/* Supplier Note */}
         {order.invoiceNote && (
@@ -147,6 +162,19 @@ export default function OrderDetailScreen() {
             <Text style={[styles.noteText, { color: colors.foreground }]}>{order.notes}</Text>
           </View>
         )}
+        {order.status === "delivered" && !hasRating && (
+          <View style={[styles.ratingBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.ratingTitle, { color: colors.foreground }]}>Rate this wholesaler</Text>
+            <View style={styles.ratingRow}>
+              {[1, 2, 3, 4, 5].map((value) => (
+                <TouchableOpacity key={value} style={styles.ratingBtn} onPress={() => onRate(value)}>
+                  <Feather name="star" size={22} color="#F59E0B" />
+                  <Text style={[styles.ratingValue, { color: colors.mutedForeground }]}>{value}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -174,5 +202,10 @@ const styles = StyleSheet.create({
   itemQty: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 2 },
   noteBox: { borderRadius: 12, borderWidth: 1, padding: 14, flexDirection: "row", gap: 10, alignItems: "flex-start" },
   noteText: { flex: 1, fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 20 },
+  ratingBox: { borderRadius: 12, borderWidth: 1, padding: 14, gap: 10 },
+  ratingTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  ratingRow: { flexDirection: "row", justifyContent: "space-between" },
+  ratingBtn: { alignItems: "center", gap: 4, paddingVertical: 4, minWidth: 40 },
+  ratingValue: { fontSize: 12, fontFamily: "Inter_500Medium" },
   errorText: { fontSize: 16, fontFamily: "Inter_400Regular" },
 });

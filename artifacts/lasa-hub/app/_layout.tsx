@@ -6,7 +6,7 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Stack, router } from "expo-router";
+import { Stack, router, usePathname } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
 import { Platform, StyleSheet, View } from "react-native";
@@ -17,6 +17,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { LanguageProvider, useLanguage } from "@/context/LanguageContext";
 import { OrderProvider } from "@/context/OrderContext";
+import { WholesalersProvider } from "@/context/WholesalersContext";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -25,17 +26,25 @@ const queryClient = new QueryClient();
 function RootLayoutNav() {
   const { user, isLoading } = useAuth();
   const { languageReady } = useLanguage();
+  const pathname = usePathname();
 
   useEffect(() => {
     if (isLoading || !languageReady) return;
+    // Never auto-redirect away from /admin — admin has its own auth.
+    if (pathname?.startsWith("/admin")) return;
     if (!user) {
-      router.replace("/");
-    } else if (user.role === "wholesaler") {
-      router.replace("/wholesaler" as any);
+      if (pathname !== "/") router.replace("/");
     } else {
-      router.replace("/(tabs)");
+      // User is logged in. Only redirect if they are still on the login screen.
+      if (pathname === "/") {
+        if (user.role === "wholesaler") {
+          router.replace("/wholesaler" as any);
+        } else {
+          router.replace("/(tabs)");
+        }
+      }
     }
-  }, [user, isLoading, languageReady]);
+  }, [user, isLoading, languageReady, pathname]);
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
@@ -47,6 +56,7 @@ function RootLayoutNav() {
       <Stack.Screen name="order-sent" />
       <Stack.Screen name="order-detail" />
       <Stack.Screen name="wholesaler" />
+      <Stack.Screen name="admin" />
     </Stack>
   );
 }
@@ -73,6 +83,7 @@ export default function RootLayout() {
         <LanguageProvider>
           <QueryClientProvider client={queryClient}>
             <AuthProvider>
+              <WholesalersProvider>
               <OrderProvider>
                 <GestureHandlerRootView style={{ flex: 1 }}>
                   <KeyboardProvider>
@@ -89,6 +100,7 @@ export default function RootLayout() {
                   </KeyboardProvider>
                 </GestureHandlerRootView>
               </OrderProvider>
+              </WholesalersProvider>
             </AuthProvider>
           </QueryClientProvider>
         </LanguageProvider>

@@ -47,3 +47,12 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Env files — NEVER commit secrets
+.env
+.env.local
+.env.*.local
+
+# Local dev artifacts — never commit
+.dev-logs/
+artifacts/api-server/test-gemini.js

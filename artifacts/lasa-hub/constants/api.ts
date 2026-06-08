@@ -1,16 +1,16 @@
 import { Platform } from "react-native";
 
 function getApiBase(): string {
+  const explicit = process.env.EXPO_PUBLIC_API_BASE;
+  if (explicit && explicit.length > 0) return explicit.replace(/\/$/, "");
+
   if (Platform.OS === "web" && typeof window !== "undefined") {
     const host = window.location.hostname;
     if (host.includes("replit.dev") || host.includes("janeway")) {
-      // Replit URL pattern: {UUID}-{PORT}-{suffix}.{domain}
-      // UUID is standard 8-4-4-4-12 hex format, followed by port number, then suffix
       const match = host.match(
-        /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-(\d+)-(.+)$/i
+        /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-(\d+)-(.+)$/i,
       );
       if (match) {
-        // match[1] = REPL_ID, match[2] = current port, match[3] = suffix.domain
         return `https://${match[1]}-8080-${match[3]}`;
       }
     }
@@ -20,16 +20,32 @@ function getApiBase(): string {
 
 export const API_BASE = getApiBase();
 
-export async function apiPost(path: string, body: Record<string, unknown>) {
+async function request<T>(method: "GET" | "POST" | "PATCH" | "DELETE", path: string, body?: unknown, headers?: Record<string, string>): Promise<T> {
   const url = `${API_BASE}${path}`;
   const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    method,
+    headers: { "Content-Type": "application/json", ...(headers ?? {}) },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(err || `HTTP ${res.status}`);
+    let err = `HTTP ${res.status}`;
+    try { err = (await res.text()) || err; } catch {}
+    throw new Error(err);
   }
-  return res.json();
+  if (res.status === 204) return undefined as T;
+  return res.json() as Promise<T>;
+}
+
+export const apiGet = <T = any>(path: string, headers?: Record<string, string>) => request<T>("GET", path, undefined, headers);
+export const apiPost = <T = any>(path: string, body: Record<string, unknown>, headers?: Record<string, string>) => request<T>("POST", path, body, headers);
+export const apiPatch = <T = any>(path: string, body: Record<string, unknown>, headers?: Record<string, string>) => request<T>("PATCH", path, body, headers);
+export const apiDelete = <T = any>(path: string, headers?: Record<string, string>) => request<T>("DELETE", path, undefined, headers);
+
+export function getUserHeaders(user?: { phone?: string; role?: string; wholesalerId?: string } | null): Record<string, string> | undefined {
+  if (!user?.phone || !user?.role) return undefined;
+  return {
+    "x-user-phone": user.phone,
+    "x-user-role": user.role,
+    ...(user.wholesalerId ? { "x-user-wholesaler-id": user.wholesalerId } : {}),
+  };
 }

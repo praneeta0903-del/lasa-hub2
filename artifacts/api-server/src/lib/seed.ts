@@ -1,53 +1,24 @@
-export interface CatalogItem {
-  name: string;
-  nameTe: string;
-  nameHi: string;
-  unit: string;
-  pricePerUnit: number;
-  available: boolean;
-  minOrderQty: number;
-  offer?: string;
-  stockQuantity?: number | null;
-  taxPercent?: number | null;
-  category?: string | null;
-  discountType?: string | null;
-  discountValue?: number | null;
-  leadTime?: string | null;
-  extraInfo?: string | null;
+import { db } from "@workspace/db";
+import { wholesalersTable, catalogItemsTable } from "@workspace/db";
+import { sql } from "drizzle-orm";
+
+interface SeedItem {
+  name: string; nameTe: string; nameHi: string;
+  unit: string; pricePerUnit: number;
+  available: boolean; minOrderQty: number; offer?: string;
 }
 
-export interface Wholesaler {
-  id: string;
-  name: string;
-  ownerName: string;
-  location: string;
-  phone: string;
-  distance: string;
-  computedDistance?: number;
-  rating: number;
-  specialOffer?: string;
-  catalog: CatalogItem[];
-  lat?: number | null;
-  lng?: number | null;
-  gstin?: string | null;
-  fssai?: string | null;
-  verified?: boolean;
-  defaultTaxPercent?: number;
-  defaultDiscountPercent?: number;
-  defaultDeliveryTime?: string | null;
-  fromAddress?: string | null;
+interface SeedWholesaler {
+  id: string; name: string; ownerName: string; ownerPhone: string;
+  location: string; distance: string; rating: number; specialOffer?: string;
+  catalog: SeedItem[];
 }
 
-export const WHOLESALERS: Wholesaler[] = [
+const SEED: SeedWholesaler[] = [
   {
-    id: "w001",
-    name: "Suresh Wholesale",
-    ownerName: "Suresh Guptha",
-    location: "Main Market, Vijayawada",
-    phone: "9876543210",
-    distance: "2.5 km",
-    rating: 4.5,
-    specialOffer: "10% off on orders above ₹2000",
+    id: "w001", name: "Suresh Wholesale", ownerName: "Suresh Guptha",
+    ownerPhone: "9876543210", location: "Main Market, Vijayawada",
+    distance: "2.5 km", rating: 4.5, specialOffer: "10% off on orders above ₹2000",
     catalog: [
       { name: "Toor Dal", nameTe: "కందిపప్పు", nameHi: "तूर दाल", unit: "kg", pricePerUnit: 135, available: true, minOrderQty: 1 },
       { name: "Rice Basmati", nameTe: "బాస్మతి బియ్యం", nameHi: "बासमती चावल", unit: "kg", pricePerUnit: 85, available: true, minOrderQty: 5 },
@@ -67,14 +38,9 @@ export const WHOLESALERS: Wholesaler[] = [
     ],
   },
   {
-    id: "w002",
-    name: "Ramesh Traders",
-    ownerName: "Ramesh Kumar",
-    location: "Bus Stand Road, Guntur",
-    phone: "9845612300",
-    distance: "4.1 km",
-    rating: 4.2,
-    specialOffer: "Free delivery on orders above ₹1500",
+    id: "w002", name: "Ramesh Traders", ownerName: "Ramesh Kumar",
+    ownerPhone: "9845612300", location: "Bus Stand Road, Guntur",
+    distance: "4.1 km", rating: 4.2, specialOffer: "Free delivery on orders above ₹1500",
     catalog: [
       { name: "Toor Dal", nameTe: "కందిపప్పు", nameHi: "तूर दाल", unit: "kg", pricePerUnit: 130, available: true, minOrderQty: 2 },
       { name: "Rice Basmati", nameTe: "బాస్మతి బియ్యం", nameHi: "बासमती चावल", unit: "kg", pricePerUnit: 82, available: true, minOrderQty: 5 },
@@ -93,14 +59,9 @@ export const WHOLESALERS: Wholesaler[] = [
     ],
   },
   {
-    id: "w003",
-    name: "Krishna Wholesale",
-    ownerName: "Krishna Rao",
-    location: "Old Town, Vijayawada",
-    phone: "9900112233",
-    distance: "1.2 km",
-    rating: 4.8,
-    specialOffer: "Lowest price guarantee",
+    id: "w003", name: "Krishna Wholesale", ownerName: "Krishna Rao",
+    ownerPhone: "9900112233", location: "Old Town, Vijayawada",
+    distance: "1.2 km", rating: 4.8, specialOffer: "Lowest price guarantee",
     catalog: [
       { name: "Toor Dal", nameTe: "కందిపప్పు", nameHi: "तूर दाल", unit: "kg", pricePerUnit: 128, available: true, minOrderQty: 1, offer: "Lowest in market" },
       { name: "Rice Basmati", nameTe: "బాస్మతి బియ్యం", nameHi: "बासमती चावल", unit: "kg", pricePerUnit: 80, available: false, minOrderQty: 5 },
@@ -121,35 +82,36 @@ export const WHOLESALERS: Wholesaler[] = [
   },
 ];
 
-export function getWholesalerById(id: string): Wholesaler | undefined {
-  return WHOLESALERS.find(w => w.id === id);
-}
+export async function seedIfEmpty() {
+  const existing = await db.execute(sql`SELECT count(*)::int AS c FROM wholesalers`);
+  const count = (existing.rows[0] as { c: number } | undefined)?.c ?? 0;
+  if (count > 0) return { seeded: false, count };
 
-export function getItemAvailability(wholesalerId: string, itemName: string): boolean {
-  const w = getWholesalerById(wholesalerId);
-  if (!w) return true;
-  const found = w.catalog.find(c => c.name.toLowerCase() === itemName.toLowerCase());
-  return found ? found.available : true;
-}
-
-export function getItemNameInLanguage(item: CatalogItem, language: string): string {
-  if (language === "te") return item.nameTe;
-  if (language === "hi") return item.nameHi;
-  return item.name;
-}
-
-/**
- * Pick the right display name for a generic item across the app.
- * Works for any item shaped like { name, nameTe?, nameHi? } — order items,
- * scanned items, catalog items, etc. Falls back to the English `name`
- * (always present as canonical) if a translated variant is missing.
- */
-export function pickName(
-  item: { name?: string; nameTe?: string | null; nameHi?: string | null } | undefined,
-  language: string,
-): string {
-  if (!item) return "";
-  if (language === "te" && item.nameTe && item.nameTe.trim()) return item.nameTe;
-  if (language === "hi" && item.nameHi && item.nameHi.trim()) return item.nameHi;
-  return item.name ?? "";
+  for (const w of SEED) {
+    await db.insert(wholesalersTable).values({
+      id: w.id,
+      name: w.name,
+      ownerName: w.ownerName,
+      ownerPhone: w.ownerPhone,
+      location: w.location,
+      distance: w.distance,
+      rating: w.rating,
+      specialOffer: w.specialOffer ?? null,
+      active: true,
+    });
+    for (const c of w.catalog) {
+      await db.insert(catalogItemsTable).values({
+        wholesalerId: w.id,
+        name: c.name,
+        nameTe: c.nameTe,
+        nameHi: c.nameHi,
+        unit: c.unit,
+        pricePerUnit: c.pricePerUnit,
+        available: c.available,
+        minOrderQty: c.minOrderQty,
+        offer: c.offer ?? null,
+      });
+    }
+  }
+  return { seeded: true, count: SEED.length };
 }
