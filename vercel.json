@@ -1,7 +1,0 @@
-{
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "_comment": "SPA rewrite — every path that isn't a real static asset gets index.html so Expo Router can handle the route client-side. Without this, hitting /admin or /wholesaler/settings directly returns Vercel's 404 instead of loading the app.",
-  "rewrites": [
-    { "source": "/((?!_expo/|_next/|api/|assets/|favicon\\.ico|robots\\.txt|.*\\..*).*)", "destination": "/" }
-  ]
-}
