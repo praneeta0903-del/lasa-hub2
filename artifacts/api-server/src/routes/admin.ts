@@ -56,6 +56,83 @@ router.post("/admin/reset-rate-limits", requireAdmin, (req, res) => {
   res.json(out);
 });
 
+/**
+ * GET /api/admin/twilio-status/:sid — ask Twilio for the terminal
+ * status of a message we sent. The SID is logged on every OTP send
+ * (look for `OTP delivered via Twilio` in Render logs). Twilio's
+ * API status field is the source of truth — "queued" or "sent" mean
+ * the message is in flight; "delivered" means the recipient phone
+ * acknowledged it; "undelivered" / "failed" mean it never arrived,
+ * usually with an errorCode that tells you why.
+ *
+ * Common WhatsApp-Sandbox errorCodes you might see:
+ *   63016  → recipient hasn't opted in to sandbox (or session expired)
+ *   63003  → channel could not find a destination address
+ *   21610  → recipient has explicitly unsubscribed
+ *
+ * Common SMS errorCodes:
+ *   21608  → trial account, destination not in Verified Caller IDs
+ *   30007  → carrier blocked (often DLT not registered for India)
+ *   30008  → unknown / silent carrier filter
+ */
+router.get("/admin/twilio-status/:sid", requireAdmin, async (req, res) => {
+  const sid = String(req.params.sid);
+  if (!/^[A-Z]{2}[0-9a-f]{32}$/.test(sid)) {
+    res.status(400).json({ error: "Invalid Twilio SID format (expected SM/MG/SMxxx... 34 chars)" });
+    return;
+  }
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  if (!accountSid || !authToken) {
+    res.status(503).json({ error: "Twilio not configured on this server" });
+    return;
+  }
+  try {
+    // Use the REST API directly via fetch — saves us from instantiating
+    // the heavy Twilio client just for a single GET. Basic auth.
+    const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages/${sid}.json`;
+    const r = await fetch(url, {
+      headers: { Authorization: "Basic " + Buffer.from(`${accountSid}:${authToken}`).toString("base64") },
+    });
+    if (!r.ok) {
+      const body = await r.text();
+      res.status(r.status).json({ error: "Twilio responded with " + r.status, body: body.slice(0, 500) });
+      return;
+    }
+    const j = (await r.json()) as any;
+    res.json({
+      sid: j.sid,
+      status: j.status,                  // queued / sent / delivered / undelivered / failed
+      errorCode: j.error_code,           // null if successful
+      errorMessage: j.error_message,
+      to: j.to,
+      from: j.from,
+      dateCreated: j.date_created,
+      dateSent: j.date_sent,
+      dateUpdated: j.date_updated,
+      // Translate the most common error codes into plain English so
+      // the operator doesn't have to grep Twilio docs.
+      hint:
+        j.error_code === 63016
+          ? "Recipient hasn't joined the WhatsApp sandbox — or the 72-hour session expired. Have them send any WhatsApp message to your sandbox number to re-arm."
+          : j.error_code === 63003
+          ? "Channel could not find a destination address. Check the From number is a valid WhatsApp-enabled Twilio number."
+          : j.error_code === 21608
+          ? "Trial Twilio account — destination not in Verified Caller IDs. Add the number under Twilio Console → Phone Numbers → Verified Caller IDs, or upgrade past trial."
+          : j.error_code === 30007
+          ? "Carrier blocked the message. For India SMS this usually means DLT template not registered."
+          : j.status === "delivered"
+          ? "Message reached the phone. If user says they didn't see it, ask them to check spam / archived chats."
+          : j.status === "queued" || j.status === "sent"
+          ? "Still in flight — refresh in a few seconds."
+          : null,
+    });
+  } catch (err: any) {
+    logger.error({ err: err?.message, sid }, "Twilio status lookup failed");
+    res.status(500).json({ error: err?.message ?? "Lookup failed" });
+  }
+});
+
 // --- Overview stats ---
 router.get("/admin/stats", requireAdmin, async (_req, res) => {
   try {
