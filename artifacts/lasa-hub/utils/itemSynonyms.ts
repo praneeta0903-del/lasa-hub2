@@ -45,7 +45,13 @@ const SYNONYM_GROUPS: string[][] = [
   ["poha", "atukulu", "flattened rice", "beaten rice", "chivda"],
 
   // ===== Dals & lentils =====
-  ["toor dal", "tur dal", "tuvar dal", "arhar dal", "kandi pappu", "kandipappu", "split pigeon pea", "तूर दाल", "अरहर दाल", "కంది పప్పు"],
+  // Toor dal goes by many names depending on language and form. Both
+  // "pigeon pea" AND "split pigeon pea" must be here — wholesalers
+  // commonly label the bag with just the short form. The missing
+  // "pigeon pea" entry caused real orders to be SMS'd as "shop doesn't
+  // sell this" when the shop had 20kg stocked. Added arhar / red gram /
+  // Telugu తొగరి పప్పు too.
+  ["toor dal", "tur dal", "tuvar dal", "arhar dal", "arhar", "thuvar dal", "toovar dal", "kandi pappu", "kandipappu", "pigeon pea", "pigeon peas", "split pigeon pea", "red gram", "तूर दाल", "अरहर दाल", "अरहर", "तुवर दाल", "కంది పప్పు", "తొగరి పప్పు"],
   ["chana dal", "split chickpea", "senaga pappu", "senagapappu", "chana", "चना दाल", "सेनगा पप्पु", "శనగ పప్పు"],
   ["moong dal", "mung dal", "moong", "pesara pappu", "pesarapappu", "split green gram", "मूंग दाल", "पेसरा पप्पु", "పెసర పప్పు"],
   ["urad dal", "urad", "minappappu", "mina pappu", "split black gram", "उड़द दाल", "మిన పప్పు"],

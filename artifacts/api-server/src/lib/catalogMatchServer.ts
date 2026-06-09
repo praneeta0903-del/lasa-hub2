@@ -28,7 +28,11 @@ const SYNONYM_GROUPS: string[][] = [
     "aashirvaad", "aashirvaad atta", "ashirvaad", "annapurna", "fortune atta", "pillsbury atta"],
   ["maida", "all purpose flour", "refined flour"],
   ["besan", "gram flour", "chickpea flour", "senaga pindi"],
-  ["toor dal", "tur dal", "tuvar dal", "arhar dal", "kandi pappu", "तूर दाल", "अरहर दाल", "కంది పప్పు"],
+  // Pigeon pea / arhar / toor dal are the same lentil — wholesalers
+  // label the bag with whichever name they grew up with. All must be
+  // here so the server-side SMS bucketing knows the shop DOES sell it,
+  // even when the kirana ordered using a different name.
+  ["toor dal", "tur dal", "tuvar dal", "arhar dal", "arhar", "thuvar dal", "toovar dal", "kandi pappu", "pigeon pea", "pigeon peas", "split pigeon pea", "red gram", "तूर दाल", "अरहर दाल", "अरहर", "तुवर दाल", "కంది పప్పు", "తొగరి పప్పు"],
   ["chana dal", "split chickpea", "senaga pappu", "chana", "चना दाल", "శనగ పప్పు"],
   ["moong dal", "mung dal", "moong", "pesara pappu", "मूंग दाल", "పెసర పప్పు"],
   ["urad dal", "urad", "minappappu", "उड़द दाल", "మిన పప్పు"],
@@ -55,6 +59,13 @@ const SYNONYM_GROUPS: string[][] = [
   ["milk", "doodh", "paalu", "दूध", "పాలు"],
   ["curd", "yogurt", "dahi", "perugu", "दही", "పెరుగు"],
   ["tea", "tea powder", "chai", "chai patti", "tea patti", "चाय", "चाय पत्ती", "టీ"],
+  // Sweeteners — jaggery has more names than almost anything else in
+  // Indian groceries. Wholesalers will write "Gur", "Jaggery", or the
+  // local name interchangeably. Same canonical group catches them all.
+  ["jaggery", "gur", "gud", "bellam", "vellam", "vellam jaggery", "गुड़", "बेलम", "బెల్లం"],
+  // Ghee — likewise. "Cow ghee" / "Pure ghee" / "Desi ghee" are the
+  // same thing for OTP matching purposes.
+  ["ghee", "pure ghee", "cow ghee", "desi ghee", "neyyi", "neyi", "नेय्यि", "घी", "नेय्यी", "నెయ్యి", "ఆవు నెయ్యి"],
 ];
 
 const variantToCanonical = new Map<string, string>();
