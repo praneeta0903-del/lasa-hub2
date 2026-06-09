@@ -275,17 +275,28 @@ export default function LoginScreen() {
             </Text>
             {generatedOtp ? (
               <Animated.View entering={FadeIn.springify()} style={[styles.otpPreviewBox, { backgroundColor: "#FEF3C7", borderColor: "#F59E0B", borderWidth: 1 }]}>
+                {/* TOP LINE — describes what just happened. The previous
+                    version was a hardcoded "Couldn't send SMS" which
+                    looked like a contradiction when Twilio actually
+                    accepted the message. Now it's truthful per status. */}
                 <Text style={[styles.otpPreviewLabel, { color: "#92400E" }]}>
-                  {language === "te"
+                  {otpDeliveryStatus === "sent"
+                    ? language === "te"
+                      ? "SMS పంపబడింది. టెస్ట్ కోసం OTP కూడా ఇక్కడ చూపబడింది:"
+                      : language === "hi"
+                      ? "SMS भेज दिया गया। टेस्ट के लिए OTP यहाँ भी दिखाया जा रहा है:"
+                      : "SMS was sent. OTP is also shown here for testing:"
+                    : language === "te"
                     ? "SMS పంపలేకపోయాము — టెస్ట్ కోసం OTP:"
                     : language === "hi"
                     ? "SMS नहीं भेज सके — टेस्ट के लिए OTP:"
                     : "Couldn't send SMS — fallback OTP for testing:"}
                 </Text>
                 <Text style={[styles.otpPreviewCode, { color: "#92400E" }]}>{generatedOtp}</Text>
+                {/* BOTTOM LINE — what to do about it. Each branch points
+                    the operator at the actual fix location so launches
+                    debug faster. */}
                 <Text style={{ fontSize: 10, color: "#92400E", marginTop: 4, fontFamily: "Inter_400Regular" }}>
-                  {/* Show the ACTUAL reason from the server instead of
-                      guessing "Twilio daily limit hit" every time. */}
                   {otpDeliveryStatus === "skipped"
                     ? "Server hasn't been given Twilio credentials yet — set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM_NUMBER on the backend host."
                     : otpDeliveryStatus === "failed"
@@ -293,7 +304,7 @@ export default function LoginScreen() {
                     : otpDeliveryStatus === "quota"
                     ? "Server-side daily Twilio cap reached. Raise TWILIO_DAILY_LIMIT env var on the backend, or wait until tomorrow."
                     : otpDeliveryStatus === "sent"
-                    ? "SMS was sent — if you didn't receive it, the OTP above is your fallback while we investigate."
+                    ? "Dev mode: OTP is shown above for testing because SHOW_OTP_IN_RESPONSE is true on the server. Set it to false in production so only the SMS contains the OTP."
                     : "Showing fallback OTP because SHOW_OTP_IN_RESPONSE is enabled on the server. Set it to false in production once SMS works."}
                 </Text>
               </Animated.View>
