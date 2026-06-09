@@ -24,10 +24,20 @@ function normalizePhone(phone: string): string {
   return digits.slice(-10);
 }
 
+// Delivery status surfaced by /api/otp/send so the UI can tell the user
+// the REAL reason SMS didn't arrive instead of guessing.
+//   "sent"    → SMS actually left Twilio; OTP is on the way
+//   "skipped" → Twilio creds missing on the server (not configured at all)
+//   "failed"  → Twilio rejected the send (trial limit, unverified number,
+//               DLT not registered for India, etc.) — check Twilio logs
+//   "quota"   → Our own daily server-wide Twilio cap was hit
+export type OtpDeliveryStatus = "sent" | "skipped" | "failed" | "quota" | null;
+
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   generatedOtp: string | null;
+  otpDeliveryStatus: OtpDeliveryStatus;
   sendOtp: (phone: string) => Promise<void>;
   verifyOtp: (phone: string, otp: string, role: UserRole) => Promise<boolean>;
   completeProfile: (phone: string, role: UserRole, name: string) => Promise<void>;
@@ -44,6 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [generatedOtp, setGeneratedOtp] = useState<string | null>(null);
+  const [otpDeliveryStatus, setOtpDeliveryStatus] = useState<OtpDeliveryStatus>(null);
   const [selectedRole, setSelectedRole] = useState<UserRole>("kirana");
 
   useEffect(() => {
@@ -95,13 +106,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const sendOtp = useCallback(async (phone: string) => {
     const normalizedPhone = normalizePhone(phone);
     try {
-      const result = await apiPost<{ otp?: string }>("/api/otp/send", { phone: normalizedPhone });
+      // Capture `delivery` too — the server tells us exactly why SMS
+      // didn't go (skipped / failed / quota / sent). Storing it on the
+      // OTP screen lets us show the real reason instead of the misleading
+      // hardcoded "Twilio daily limit hit" banner.
+      const result = await apiPost<{ otp?: string; delivery?: string }>(
+        "/api/otp/send",
+        { phone: normalizedPhone },
+      );
       if (result.otp) setGeneratedOtp(result.otp);
+      // Narrow the loose `string` from the JSON to our typed union.
+      const d = result.delivery;
+      const status: OtpDeliveryStatus =
+        d === "sent" || d === "skipped" || d === "failed" || d === "quota" ? d : null;
+      setOtpDeliveryStatus(status);
     } catch (err: any) {
       // Bubble the error up so the calling screen can show "too many
       // requests", "DB unreachable", etc. The previous version swallowed
       // every failure and the user saw a fake "OTP sent" success state.
       setGeneratedOtp(null);
+      setOtpDeliveryStatus(null);
       throw err;
     }
   }, []);
@@ -265,7 +289,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const setRole = useCallback((role: UserRole) => setSelectedRole(role), []);
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, generatedOtp, sendOtp, verifyOtp, completeProfile, loginExistingUser, refreshUser, logout, setRole, selectedRole }}>
+    <AuthContext.Provider value={{ user, isLoading, generatedOtp, otpDeliveryStatus, sendOtp, verifyOtp, completeProfile, loginExistingUser, refreshUser, logout, setRole, selectedRole }}>
       {children}
     </AuthContext.Provider>
   );

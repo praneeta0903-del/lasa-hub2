@@ -25,7 +25,7 @@ type Step = "language" | "role" | "phone" | "otp" | "name";
 export default function LoginScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { sendOtp, verifyOtp, completeProfile, loginExistingUser, generatedOtp, selectedRole, setRole } = useAuth();
+  const { sendOtp, verifyOtp, completeProfile, loginExistingUser, generatedOtp, otpDeliveryStatus, selectedRole, setRole } = useAuth();
   const { setLanguage, t, language } = useLanguage();
 
   const [step, setStep] = useState<Step>("language");
@@ -284,11 +284,17 @@ export default function LoginScreen() {
                 </Text>
                 <Text style={[styles.otpPreviewCode, { color: "#92400E" }]}>{generatedOtp}</Text>
                 <Text style={{ fontSize: 10, color: "#92400E", marginTop: 4, fontFamily: "Inter_400Regular" }}>
-                  {language === "te"
-                    ? "Twilio రోజువారీ పరిమితి దాటింది లేదా అకౌంట్ సెటప్ చేయబడలేదు"
-                    : language === "hi"
-                    ? "Twilio की रोज़ की लिमिट खत्म हो गई या अकाउंट सेट नहीं है"
-                    : "Twilio daily limit hit or account not set up — top up to send real SMS"}
+                  {/* Show the ACTUAL reason from the server instead of
+                      guessing "Twilio daily limit hit" every time. */}
+                  {otpDeliveryStatus === "skipped"
+                    ? "Server hasn't been given Twilio credentials yet — set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM_NUMBER on the backend host."
+                    : otpDeliveryStatus === "failed"
+                    ? "Twilio rejected the send. Common causes: trial account (the number isn't in Verified Caller IDs), DLT template not registered for India SMS, or the From number is wrong. Check Twilio Console → Monitor → Logs."
+                    : otpDeliveryStatus === "quota"
+                    ? "Server-side daily Twilio cap reached. Raise TWILIO_DAILY_LIMIT env var on the backend, or wait until tomorrow."
+                    : otpDeliveryStatus === "sent"
+                    ? "SMS was sent — if you didn't receive it, the OTP above is your fallback while we investigate."
+                    : "Showing fallback OTP because SHOW_OTP_IN_RESPONSE is enabled on the server. Set it to false in production once SMS works."}
                 </Text>
               </Animated.View>
             ) : null}
