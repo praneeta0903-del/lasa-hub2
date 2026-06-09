@@ -77,15 +77,38 @@ async function sendViaTwilio(phone: string, code: string): Promise<"sent" | "ski
   try {
     const client = twilio(sid, token);
     const toNumber = phone.startsWith("+") ? phone : `+91${phone}`;
-    await client.messages.create({
+    // Capture the Twilio Message SID — this is the only handle that
+    // lets us trace what ACTUALLY happened to the message after Twilio
+    // accepted it. WhatsApp Sandbox returns "sent" via the API even
+    // when the recipient hasn't joined the sandbox, but the SID in the
+    // Twilio Console will show the real terminal status (undelivered/
+    // failed/delivered) within ~5 seconds.
+    const message = await client.messages.create({
       body: `Lasa Hub OTP: ${code}. Valid for 10 minutes. Do not share.`,
       to: channel === "whatsapp" ? `whatsapp:${toNumber}` : toNumber,
       from: channel === "whatsapp" ? `whatsapp:${from}` : from,
     });
-    logger.info({ phone, channel, count: reservation.count }, "OTP delivered via Twilio");
+    logger.info(
+      { phone, channel, count: reservation.count, sid: message.sid, twilioStatus: message.status },
+      "OTP delivered via Twilio — check console for terminal status",
+    );
     return "sent";
   } catch (err: any) {
-    logger.warn({ err: err?.message, phone, channel }, "Twilio delivery failed");
+    // Surface the Twilio error code in the log — codes are documented
+    // (21608 = trial unverified, 30007 = carrier reject, 63016 = WhatsApp
+    // recipient not opted in, etc.) so an ops person can fix without
+    // grepping source.
+    logger.warn(
+      {
+        err: err?.message,
+        twilioCode: err?.code,
+        twilioStatus: err?.status,
+        moreInfo: err?.moreInfo,
+        phone,
+        channel,
+      },
+      "Twilio delivery failed",
+    );
     return "failed";
   }
 }
