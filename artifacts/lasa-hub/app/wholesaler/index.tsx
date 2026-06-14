@@ -10,6 +10,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { type Order, useOrders } from "@/context/OrderContext";
 import { useColors } from "@/hooks/useColors";
+import { LasaLogo } from "@/components/LasaLogo";
 
 const STATUS_TABS = ["all", "pending", "confirmed", "out_for_delivery", "delivered"] as const;
 
@@ -55,9 +56,14 @@ export default function WholesalerDashboard() {
             <Text style={styles.headerLabel}>{t("wholesaleTitle")}</Text>
             <Text style={styles.headerShop}>{user?.shopName ?? "Aapki Dukaan"}</Text>
           </View>
-          <TouchableOpacity onPress={async () => { await logout(); }} style={styles.logoutBtn}>
-            <Feather name="log-out" size={20} color="rgba(255,255,255,0.8)" />
-          </TouchableOpacity>
+          {/* Brand mark + logout, grouped on the right edge. Outline ring
+              so the red circle reads against the accent-colored bg. */}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <LasaLogo size={36} outline />
+            <TouchableOpacity onPress={async () => { await logout(); }} style={styles.logoutBtn}>
+              <Feather name="log-out" size={20} color="rgba(255,255,255,0.8)" />
+            </TouchableOpacity>
+          </View>
         </View>
         {pendingCount > 0 && (
           <View style={styles.alertBanner}>

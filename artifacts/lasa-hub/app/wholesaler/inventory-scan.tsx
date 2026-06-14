@@ -16,6 +16,7 @@ import { pickName } from "@/data/wholesalers";
 import { SampleListCard } from "@/components/SampleListCard";
 import { TaxHelpButton } from "@/components/TaxHelpButton";
 import { useWholesalerStrings } from "@/hooks/useWholesalerStrings";
+import { LasaLogo } from "@/components/LasaLogo";
 
 type Draft = {
   name: string;
@@ -169,7 +170,7 @@ export default function InventoryScanScreen() {
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>Scan price list</Text>
-        <View style={{ width: 38 }} />
+        <LasaLogo size={28} /* logo in top-right keeps brand on every screen */ />
       </View>
 
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} keyboardShouldPersistTaps="handled">

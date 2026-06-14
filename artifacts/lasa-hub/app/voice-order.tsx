@@ -9,6 +9,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useColors } from "@/hooks/useColors";
 import { apiPost } from "@/constants/api";
 import { pickName } from "@/data/wholesalers";
+import { LasaLogo } from "@/components/LasaLogo";
 
 interface ParsedItem {
   name: string;
@@ -260,7 +261,7 @@ export default function VoiceOrderScreen() {
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>{t("voiceTitle")}</Text>
-        <View style={{ width: 38 }} />
+        <LasaLogo size={28} /* logo in top-right keeps brand on every screen */ />
       </Animated.View>
 
       <ScrollView

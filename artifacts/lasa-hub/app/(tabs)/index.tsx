@@ -18,6 +18,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useOrders } from "@/context/OrderContext";
 import { useColors } from "@/hooks/useColors";
 import { useWholesalers } from "@/context/WholesalersContext";
+import { LasaLogo } from "@/components/LasaLogo";
 
 export default function KiranaHomeScreen() {
   const colors = useColors();
@@ -61,14 +62,20 @@ export default function KiranaHomeScreen() {
             <Text style={styles.greetingText}>{greeting},</Text>
             <Text style={styles.shopNameText}>{user?.name ?? user?.shopName ?? "Kirana Owner"}</Text>
           </View>
-          {/* Account icon */}
-          <TouchableOpacity
-            onPress={() => setShowAccount(true)}
-            style={[styles.accountBtn, { backgroundColor: "rgba(255,255,255,0.2)" }]}
-            activeOpacity={0.8}
-          >
-            <Feather name="user" size={20} color="#FFF" />
-          </TouchableOpacity>
+          {/* Brand mark + account icon, grouped so they sit cleanly on
+              the right edge of the colored header. The outline ring on
+              LasaLogo makes the red circle pop against the red
+              background instead of disappearing into it. */}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <LasaLogo size={36} outline />
+            <TouchableOpacity
+              onPress={() => setShowAccount(true)}
+              style={[styles.accountBtn, { backgroundColor: "rgba(255,255,255,0.2)" }]}
+              activeOpacity={0.8}
+            >
+              <Feather name="user" size={20} color="#FFF" />
+            </TouchableOpacity>
+          </View>
         </View>
         {supplierLineText && (
           <View style={styles.supplierRow}>

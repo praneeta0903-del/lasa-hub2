@@ -21,6 +21,7 @@ import { useColors } from "@/hooks/useColors";
 import { apiPost } from "@/constants/api";
 import { pickName } from "@/data/wholesalers";
 import { SampleListCard } from "@/components/SampleListCard";
+import { LasaLogo } from "@/components/LasaLogo";
 
 interface ParsedItem {
   name: string;
@@ -150,7 +151,7 @@ export default function ScanOrderScreen() {
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>{t("takePhotoTitle")}</Text>
-        <View style={{ width: 38 }} />
+        <LasaLogo size={28} /* logo in top-right keeps brand on every screen */ />
       </Animated.View>
 
       <ScrollView

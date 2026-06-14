@@ -8,6 +8,7 @@ import { WholesalerTabBar } from "@/components/WholesalerTabBar";
 import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
 import { useWholesalerStrings } from "@/hooks/useWholesalerStrings";
+import { LasaLogo } from "@/components/LasaLogo";
 
 type Settings = {
   id: string;
@@ -89,7 +90,7 @@ export default function WholesalerSettings() {
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>{s("shopSettings")}</Text>
-        <View style={{ width: 38 }} />
+        <LasaLogo size={28} /* logo in top-right keeps brand on every screen */ />
       </View>
 
       <WholesalerTabBar />

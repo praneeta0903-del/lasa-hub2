@@ -17,6 +17,7 @@ import { neededInCatalogUnit } from "@/utils/units";
 import { findCatalogItem as sharedFindCatalogItem } from "@/utils/catalogMatch";
 import { wholesalerStockLabel } from "@/utils/stockLabels";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
+import { LasaLogo } from "@/components/LasaLogo";
 
 type LiveCatalogItem = {
   id: number;
@@ -273,7 +274,7 @@ export default function WholesalerOrderDetail() {
           </View>
           <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>{order.items.length} items</Text>
         </View>
-        <View style={{ width: 38 }} />
+        <LasaLogo size={28} /* logo in top-right keeps brand on every screen */ />
       </Animated.View>
 
       <ScrollView

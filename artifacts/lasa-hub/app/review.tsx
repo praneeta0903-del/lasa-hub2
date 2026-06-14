@@ -26,6 +26,7 @@ import { kiranaStockLabel } from "@/utils/stockLabels";
 import { findSimilarCatalogItems } from "@/utils/catalogMatch";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { useColors } from "@/hooks/useColors";
+import { LasaLogo } from "@/components/LasaLogo";
 
 function parseQty(q: string): number {
   const m = q.match(/(\d+(\.\d+)?)/);
@@ -287,7 +288,7 @@ export default function ReviewScreen() {
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>{t("reviewTitle")}</Text>
-        <View style={{ width: 38 }} />
+        <LasaLogo size={28} /* logo in top-right keeps brand on every screen */ />
       </Animated.View>
 
       <ScrollView

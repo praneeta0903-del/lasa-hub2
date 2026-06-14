@@ -9,6 +9,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useOrders, type OrderStatus } from "@/context/OrderContext";
 import { useColors } from "@/hooks/useColors";
 import type { TranslationKey } from "@/constants/translations";
+import { LasaLogo } from "@/components/LasaLogo";
 
 const STATUS_KEYS: Record<OrderStatus, TranslationKey> = {
   pending: "statusPending",
@@ -70,7 +71,7 @@ export default function OrderDetailScreen() {
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>{t("orderDetail")}</Text>
-        <View style={{ width: 38 }} />
+        <LasaLogo size={28} /* logo in top-right keeps brand on every screen */ />
       </Animated.View>
 
       <ScrollView
