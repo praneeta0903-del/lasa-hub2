@@ -23,10 +23,12 @@ import { Image, Platform, StyleSheet, Text, View, type ImageStyle, type StylePro
  * regardless of asset state.
  */
 
-// ⬇️ When you drop the PNG, uncomment this line and the matching `usePng`
-// branch below. Until then the component uses the stylized fallback.
-// const LOGO_PNG = require("@/assets/images/lasa-logo.png");
-const LOGO_PNG: number | null = null;
+// Real brand asset. JPEG is fine here — the `overflow: hidden` +
+// borderRadius below clip the image to a circle, so the lack of
+// transparency in JPEG corners gets masked out anyway. If you ever
+// re-export as PNG with transparency, just rename the file and
+// change the extension below.
+const LOGO_PNG = require("@/assets/images/lasa-logo.jpeg");
 
 type Props = {
   size?: number;
@@ -37,24 +39,37 @@ type Props = {
 };
 
 export function LasaLogo({ size = 96, outline = false, style }: Props) {
-  const dim = { width: size, height: size, borderRadius: size / 2 };
-  const ring = outline
-    ? { borderWidth: Math.max(1, size * 0.04), borderColor: "#FFFFFF" }
-    : undefined;
+  const dim = { width: size, height: size };
 
   if (LOGO_PNG) {
-    // Real artwork path. Image is masked to a circle via borderRadius +
-    // overflow: hidden so the PNG can be square with transparent corners
-    // OR pre-cut — either way ends up circular on screen.
+    // The artwork file is ALREADY a circle (with a sticker peel curl
+    // on the side) so we do NOT clip it to a perfect circle here —
+    // that would cut off the peel curl and leave the JPEG's white
+    // padding visible inside the crop as a halo.
+    //
+    // Instead we use resizeMode="contain" and let the white JPEG
+    // padding blend invisibly with the white app background. The
+    // sticker reads as its true shape (curl included), and there's
+    // no double-ring artifact.
+    //
+    // The `outline` ring + drop shadow are deliberately omitted in
+    // this branch — they were designed for the abstract fallback
+    // circle. The real sticker has its own visual edge already.
     return (
-      <View style={[styles.shadow, dim, ring, style]} accessibilityLabel="Lasa Hub">
+      <View style={[dim, style]} accessibilityLabel="Lasa Hub">
         <Image
           source={LOGO_PNG as any}
-          style={[dim as StyleProp<ImageStyle>, { resizeMode: "cover" }]}
+          style={[dim as StyleProp<ImageStyle>, { resizeMode: "contain" }]}
         />
       </View>
     );
   }
+
+  // ↓ Fallback branch only — uses the circular masking + outline.
+  const fallbackDim = { ...dim, borderRadius: size / 2 };
+  const ring = outline
+    ? { borderWidth: Math.max(1, size * 0.04), borderColor: "#FFFFFF" }
+    : undefined;
 
   // Stylized fallback — clean red circle with bold white "LASA". Looks
   // intentional rather than placeholder-y so screens look fine even
@@ -64,7 +79,7 @@ export function LasaLogo({ size = 96, outline = false, style }: Props) {
       style={[
         styles.shadow,
         styles.fallback,
-        dim,
+        fallbackDim,
         ring,
         style,
       ]}

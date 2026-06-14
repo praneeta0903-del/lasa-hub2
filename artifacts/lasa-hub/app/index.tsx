@@ -155,12 +155,15 @@ export default function LoginScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Logo — bigger and centered on the very first (language) screen,
-            slightly smaller on subsequent steps so the form has room to
-            breathe. The LasaLogo component handles the circular masking
-            and falls back gracefully if the PNG asset isn't loaded yet. */}
+        {/* Logo — extra-large on the language step (the very first
+            screen a new user sees) and still generous on subsequent
+            steps. Sizes are bumped beyond the visible artwork because
+            the JPEG has white padding around the sticker that
+            resizeMode="contain" preserves — so a 220px container only
+            shows ~140px of actual red sticker. Tune these numbers if
+            the source artwork is ever re-exported with a tighter crop. */}
         <Animated.View entering={FadeInDown.delay(80).springify()} style={styles.logoSection}>
-          <LasaLogo size={step === "language" ? 140 : 96} />
+          <LasaLogo size={step === "language" ? 220 : 150} />
           <Text style={[styles.appName, { color: colors.primary }]}>Lasa Hub</Text>
           {step !== "language" && (
             <Text style={[styles.tagline, { color: colors.mutedForeground }]}>{t("appTagline")}</Text>
