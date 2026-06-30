@@ -19,6 +19,7 @@ import { useOrders } from "@/context/OrderContext";
 import { useColors } from "@/hooks/useColors";
 import { useWholesalers } from "@/context/WholesalersContext";
 import { LasaLogo } from "@/components/LasaLogo";
+import { OrderTracker, prettyStatus } from "@/components/OrderTracker";
 
 export default function KiranaHomeScreen() {
   const colors = useColors();
@@ -28,6 +29,15 @@ export default function KiranaHomeScreen() {
   const { wholesalers } = useWholesalers();
   const { orders } = useOrders();
   const hasOrderHistory = orders.length > 0;
+  // Most recent active order — used for the home-screen tracker.
+  // Includes "pending" so the kirana sees an empty tracker the moment
+  // they place an order (helps them understand the journey before the
+  // wholesaler has accepted). Skips delivered (done) and cancelled
+  // (failure terminal states).
+  const activeOrder = orders
+    .filter(o => o.kiranaPhone === user?.phone)
+    .filter(o => o.status === "pending" || o.status === "confirmed" || o.status === "packed" || o.status === "out_for_delivery")
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0];
   const [showAccount, setShowAccount] = useState(false);
 
   const hour = new Date().getHours();
@@ -57,6 +67,9 @@ export default function KiranaHomeScreen() {
         entering={FadeInDown.delay(50).springify()}
         style={[styles.header, { backgroundColor: colors.primary, paddingTop: insets.top + (Platform.OS === "web" ? 67 : 16) }]}
       >
+        {/* Bold KIRANA label so the user always knows which mode they're
+            in. Sits above the greeting line. */}
+        <Text style={styles.roleBadge}>KIRANA</Text>
         <View style={styles.headerContent}>
           <View style={styles.headerLeft}>
             <Text style={styles.greetingText}>{greeting},</Text>
@@ -67,7 +80,7 @@ export default function KiranaHomeScreen() {
               LasaLogo makes the red circle pop against the red
               background instead of disappearing into it. */}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-            <LasaLogo size={36} outline />
+            <LasaLogo size={44} outline />
             <TouchableOpacity
               onPress={() => setShowAccount(true)}
               style={[styles.accountBtn, { backgroundColor: "rgba(255,255,255,0.2)" }]}
@@ -90,6 +103,26 @@ export default function KiranaHomeScreen() {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100 }]}
         showsVerticalScrollIndicator={false}
       >
+        {/* Active-order tracker — appears at the top of the home
+            screen whenever the kirana has an order in flight, so they
+            can see at a glance which stage their delivery is at without
+            navigating into the order. Hidden when no active order. */}
+        {activeOrder && (
+          <Animated.View
+            entering={FadeInDown.delay(110).springify()}
+            style={[styles.trackerCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+          >
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <Text style={[styles.trackerLabel, { color: colors.mutedForeground }]}>
+                {language === "te" ? "మీ ప్రస్తుత ఆర్డర్" : language === "hi" ? "आपका मौजूदा ऑर्डर" : "Your active order"}
+                {activeOrder.invoiceNumber ? `  ·  ${activeOrder.invoiceNumber}` : ""}
+              </Text>
+              <Text style={[styles.trackerStatus, { color: colors.primary }]}>{prettyStatus(activeOrder.status, language)}</Text>
+            </View>
+            <OrderTracker status={activeOrder.status as any} language={language} compact />
+          </Animated.View>
+        )}
+
         <Animated.Text entering={FadeInDown.delay(140).springify()} style={[styles.sectionLabel, { color: colors.foreground }]}>
           {t("howToOrder")}
         </Animated.Text>
@@ -195,6 +228,15 @@ export default function KiranaHomeScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   header: { paddingHorizontal: 20, paddingBottom: 20 },
+  // Big bold KIRANA label across the top of the header. Wide
+  // letter-spacing + uppercase gives it the "you are here" feel
+  // without needing extra space.
+  roleBadge: { color: "#FFF", fontSize: 26, fontFamily: "Inter_700Bold", letterSpacing: 3, marginBottom: 10 },
+  // Floating tracker card at the top of the home scroll, visible
+  // only when there's an order in flight (confirmed / packed / out).
+  trackerCard: { borderRadius: 14, borderWidth: 1, padding: 12, marginBottom: 12 },
+  trackerLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  trackerStatus: { fontSize: 13, fontFamily: "Inter_700Bold" },
   headerContent: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
   headerLeft: { flex: 1 },
   greetingText: { color: "rgba(255,255,255,0.85)", fontSize: 14, fontFamily: "Inter_400Regular" },

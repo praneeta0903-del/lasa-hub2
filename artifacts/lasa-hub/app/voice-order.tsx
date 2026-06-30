@@ -2,7 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import Animated, { FadeIn, FadeInDown, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLanguage } from "@/context/LanguageContext";
@@ -46,6 +46,12 @@ export default function VoiceOrderScreen() {
   const [parseError, setParseError] = useState<string | null>(null);
   const [speechSupported, setSpeechSupported] = useState(true);
   const [permissionState, setPermissionState] = useState<"unknown" | "granted" | "denied">("unknown");
+  // Inline "Add another item" form — mirrors the manual-add UX on the
+  // review screen. Showing two real inputs (name + quantity) is much
+  // clearer than pushing a blank row the user has to click to edit.
+  const [showAddItemForm, setShowAddItemForm] = useState(false);
+  const [newItemName, setNewItemName] = useState("");
+  const [newItemQty, setNewItemQty] = useState("");
 
   // Refs are critical: the `onresult` callback closes over state at the moment
   // it's registered, so reading `transcript` from state after stop gives the
@@ -261,7 +267,7 @@ export default function VoiceOrderScreen() {
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>{t("voiceTitle")}</Text>
-        <LasaLogo size={28} /* logo in top-right keeps brand on every screen */ />
+        <LasaLogo size={42} /* bigger circular logo in top-right keeps brand visible on every screen */ />
       </Animated.View>
 
       <ScrollView
@@ -357,6 +363,81 @@ export default function VoiceOrderScreen() {
                 <View style={[styles.dot, { backgroundColor: item.available ? colors.available : colors.unavailable }]} />
               </View>
             ))}
+            {/* + Add another item — opens an inline form with proper
+                Name and Quantity inputs (same UX as the manual-add
+                row on the review screen). The previous version just
+                pushed a blank row which looked like a bug. */}
+            {!showAddItemForm ? (
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setShowAddItemForm(true);
+                }}
+                style={[styles.addItemBtn, { borderColor: colors.primary }]}
+                activeOpacity={0.85}
+              >
+                <Feather name="plus" size={18} color={colors.primary} />
+                <Text style={[styles.addItemBtnText, { color: colors.primary }]}>
+                  {language === "te" ? "మరో వస్తువు చేర్చండి"
+                    : language === "hi" ? "एक और सामान जोड़ें"
+                    : "Add another item"}
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={[styles.addItemForm, { borderColor: colors.primary, backgroundColor: colors.card }]}>
+                <Text style={[styles.addItemFormLabel, { color: colors.foreground }]}>
+                  {language === "te" ? "కొత్త వస్తువు" : language === "hi" ? "नया सामान" : "New item"}
+                </Text>
+                <TextInput
+                  style={[styles.addItemInput, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background }]}
+                  placeholder={language === "te" ? "వస్తువు పేరు" : language === "hi" ? "सामान का नाम" : "Item name"}
+                  placeholderTextColor={colors.mutedForeground}
+                  value={newItemName}
+                  onChangeText={setNewItemName}
+                  autoFocus
+                />
+                <TextInput
+                  style={[styles.addItemInput, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background }]}
+                  placeholder={language === "te" ? "ఎంత? (ఉదా: 2 kg)" : language === "hi" ? "कितना? (जैसे 2 kg)" : "Quantity (e.g. 2 kg)"}
+                  placeholderTextColor={colors.mutedForeground}
+                  value={newItemQty}
+                  onChangeText={setNewItemQty}
+                />
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setShowAddItemForm(false);
+                      setNewItemName("");
+                      setNewItemQty("");
+                    }}
+                    style={[styles.addItemFormBtn, { backgroundColor: colors.secondary, borderColor: colors.border, borderWidth: 1, flex: 1 }]}
+                  >
+                    <Text style={[styles.addItemFormBtnText, { color: colors.foreground }]}>
+                      {language === "te" ? "రద్దు" : language === "hi" ? "रद्द" : "Cancel"}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (!newItemName.trim()) return;
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setParsedItems((prev) => [
+                        ...(prev ?? []),
+                        { name: newItemName.trim(), quantity: newItemQty.trim() || "1", available: true },
+                      ]);
+                      setShowAddItemForm(false);
+                      setNewItemName("");
+                      setNewItemQty("");
+                    }}
+                    style={[styles.addItemFormBtn, { backgroundColor: colors.primary, flex: 1, opacity: newItemName.trim() ? 1 : 0.5 }]}
+                    disabled={!newItemName.trim()}
+                  >
+                    <Text style={[styles.addItemFormBtnText, { color: "#FFF" }]}>
+                      {language === "te" ? "చేర్చండి" : language === "hi" ? "जोड़ें" : "Add"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
             <TouchableOpacity style={[styles.proceedBtn, { backgroundColor: colors.primary }]} onPress={handleProceed} activeOpacity={0.85}>
               <Text style={styles.proceedBtnText}>{t("reviewTitle")}</Text>
               <Feather name="arrow-right" size={20} color="#FFF" />
@@ -403,6 +484,17 @@ const styles = StyleSheet.create({
   itemQty: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 2 },
   dot: { width: 14, height: 14, borderRadius: 7 },
   proceedBtn: { height: 58, borderRadius: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 8 },
+  // Outlined "+ Add another item" button — lower visual weight than
+  // the red proceed button so it reads as a secondary action.
+  addItemBtn: { height: 48, borderRadius: 14, borderWidth: 1.5, borderStyle: "dashed", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 8 },
+  addItemBtnText: { fontFamily: "Inter_700Bold", fontSize: 14 },
+  // Inline add-item form — mirrors the manual-add form on review.tsx
+  // so the UX matches across screens.
+  addItemForm: { borderWidth: 1.5, borderRadius: 14, padding: 12, gap: 10, marginTop: 8 },
+  addItemFormLabel: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  addItemInput: { height: 44, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, fontFamily: "Inter_500Medium", fontSize: 14 },
+  addItemFormBtn: { height: 42, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  addItemFormBtnText: { fontFamily: "Inter_700Bold", fontSize: 13 },
   proceedBtnText: { color: "#FFF", fontSize: 17, fontFamily: "Inter_700Bold" },
   retakeBtn: { alignItems: "center", paddingVertical: 12 },
   retakeText: { fontSize: 14, fontFamily: "Inter_500Medium" },

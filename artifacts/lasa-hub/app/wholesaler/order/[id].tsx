@@ -274,7 +274,7 @@ export default function WholesalerOrderDetail() {
           </View>
           <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>{order.items.length} items</Text>
         </View>
-        <LasaLogo size={28} /* logo in top-right keeps brand on every screen */ />
+        <LasaLogo size={42} /* bigger circular logo in top-right keeps brand visible on every screen */ />
       </Animated.View>
 
       <ScrollView
@@ -470,7 +470,23 @@ export default function WholesalerOrderDetail() {
           </>
         )}
 
+        {/* Accepted → mark as Packed. New intermediate stage so the
+            kirana's 4-stage tracker gets a "packed" tick before the
+            "dispatched" tick. Visually separated from the existing
+            two buttons by leaving them in place below — wholesaler
+            taps them in sequence. */}
         {order.status === "confirmed" && (
+          <TouchableOpacity
+            style={[styles.actionBtn, { backgroundColor: "#0EA5E9" }]}
+            onPress={() => handleStatusChange("packed" as any)}
+            activeOpacity={0.85}
+          >
+            <Feather name="package" size={20} color="#FFF" />
+            <Text style={styles.actionBtnText}>Mark as Packed</Text>
+          </TouchableOpacity>
+        )}
+
+        {order.status === "packed" && (
           <TouchableOpacity
             style={[styles.actionBtn, { backgroundColor: "#7C3AED" }]}
             onPress={() => handleStatusChange("out_for_delivery")}

@@ -15,6 +15,9 @@ interface Props {
 const STATUS_KEYS: Record<OrderStatus, TranslationKey> = {
   pending: "statusPending",
   confirmed: "statusConfirmed",
+  // "packed" reuses the confirmed key for translation lookup —
+  // see OrderTracker.prettyStatus for the proper localized label.
+  packed: "statusConfirmed",
   out_for_delivery: "statusOutForDelivery",
   delivered: "statusDelivered",
   cancelled: "statusCancelled",
@@ -23,6 +26,7 @@ const STATUS_KEYS: Record<OrderStatus, TranslationKey> = {
 const STATUS_COLORS: Record<OrderStatus, string> = {
   pending: "#D97706",
   confirmed: "#2563EB",
+  packed: "#0EA5E9",
   out_for_delivery: "#7C3AED",
   delivered: "#16A34A",
   cancelled: "#DC2626",

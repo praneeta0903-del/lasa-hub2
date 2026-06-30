@@ -14,6 +14,10 @@ import { LasaLogo } from "@/components/LasaLogo";
 const STATUS_KEYS: Record<OrderStatus, TranslationKey> = {
   pending: "statusPending",
   confirmed: "statusConfirmed",
+  // "packed" reuses the confirmed translation since we don't have a
+  // separate translation key for it yet — visible label comes from
+  // the OrderTracker which has its own multilingual labels.
+  packed: "statusConfirmed",
   out_for_delivery: "statusOutForDelivery",
   delivered: "statusDelivered",
   cancelled: "statusCancelled",
@@ -22,6 +26,7 @@ const STATUS_KEYS: Record<OrderStatus, TranslationKey> = {
 const STATUS_COLORS: Record<OrderStatus, string> = {
   pending: "#D97706",
   confirmed: "#2563EB",
+  packed: "#0EA5E9",
   out_for_delivery: "#7C3AED",
   delivered: "#16A34A",
   cancelled: "#DC2626",
@@ -30,8 +35,9 @@ const STATUS_COLORS: Record<OrderStatus, string> = {
 const STATUS_ICONS: Record<OrderStatus, string> = {
   pending: "clock",
   confirmed: "check-circle",
+  packed: "package",
   out_for_delivery: "truck",
-  delivered: "package",
+  delivered: "check-square",
   cancelled: "x-circle",
 };
 
@@ -71,7 +77,7 @@ export default function OrderDetailScreen() {
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>{t("orderDetail")}</Text>
-        <LasaLogo size={28} /* logo in top-right keeps brand on every screen */ />
+        <LasaLogo size={42} /* bigger circular logo in top-right keeps brand visible on every screen */ />
       </Animated.View>
 
       <ScrollView

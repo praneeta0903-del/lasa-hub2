@@ -8,6 +8,7 @@ import { WholesalerTabBar } from "@/components/WholesalerTabBar";
 import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
 import { useWholesalerStrings } from "@/hooks/useWholesalerStrings";
+import { LasaLogo } from "@/components/LasaLogo";
 
 type Insights = {
   windowDays: number;
@@ -60,7 +61,10 @@ export default function WholesalerInsights() {
         <TouchableOpacity onPress={() => router.replace("/wholesaler" as any)} style={{ padding: 8 }}>
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.foreground }]}>{s("insightsTitle")}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <LasaLogo size={38} />
+          <Text style={[styles.headerTitle, { color: colors.foreground }]}>{s("insightsTitle")}</Text>
+        </View>
         <TouchableOpacity onPress={load} style={{ padding: 8 }}>
           <Feather name="refresh-cw" size={18} color={colors.primary} />
         </TouchableOpacity>

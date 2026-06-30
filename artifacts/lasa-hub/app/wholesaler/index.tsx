@@ -51,6 +51,10 @@ export default function WholesalerDashboard() {
         entering={FadeInDown.delay(50).springify()}
         style={[styles.header, { backgroundColor: colors.accent, paddingTop: insets.top + (Platform.OS === "web" ? 67 : 16) }]}
       >
+        {/* Bold WHOLESALE label across the top of the header so the user
+            always knows they're in the wholesaler view, mirroring the
+            KIRANA label on the kirana home screen. */}
+        <Text style={styles.roleBadge}>WHOLESALE</Text>
         <View style={styles.headerTop}>
           <View>
             <Text style={styles.headerLabel}>{t("wholesaleTitle")}</Text>
@@ -59,7 +63,7 @@ export default function WholesalerDashboard() {
           {/* Brand mark + logout, grouped on the right edge. Outline ring
               so the red circle reads against the accent-colored bg. */}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-            <LasaLogo size={36} outline />
+            <LasaLogo size={44} outline />
             <TouchableOpacity onPress={async () => { await logout(); }} style={styles.logoutBtn}>
               <Feather name="log-out" size={20} color="rgba(255,255,255,0.8)" />
             </TouchableOpacity>
@@ -140,6 +144,8 @@ export default function WholesalerDashboard() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   header: { paddingHorizontal: 20, paddingBottom: 20 },
+  // Big bold WHOLESALE label across the top of the header.
+  roleBadge: { color: "#FFF", fontSize: 26, fontFamily: "Inter_700Bold", letterSpacing: 3, marginBottom: 10 },
   headerTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
   headerLabel: { color: "rgba(255,255,255,0.75)", fontSize: 13, fontFamily: "Inter_400Regular" },
   headerShop: { color: "#FFF", fontSize: 22, fontFamily: "Inter_700Bold", marginTop: 2 },

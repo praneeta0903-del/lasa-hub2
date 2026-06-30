@@ -21,7 +21,17 @@ import { useColors } from "@/hooks/useColors";
 import { LANGUAGES, type Language } from "@/constants/translations";
 import { LasaLogo } from "@/components/LasaLogo";
 
-type Step = "language" | "role" | "phone" | "otp" | "name";
+type Step = "language" | "auth_choice" | "role" | "phone" | "otp" | "name";
+type AuthIntent = "login" | "register" | null;
+
+/**
+ * Strip everything that isn't a digit. Used as the gatekeeper on the
+ * phone input so alphabets / spaces / symbols never reach state.
+ * Also caps at 10 because India mobile numbers are exactly 10 digits.
+ */
+function digitsOnly(raw: string, max = 10): string {
+  return String(raw ?? "").replace(/\D/g, "").slice(0, max);
+}
 
 export default function LoginScreen() {
   const colors = useColors();
@@ -33,13 +43,36 @@ export default function LoginScreen() {
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [name, setName] = useState("");
+  // Shop / delivery address captured during registration. Becomes
+  // the default delivery address on the review screen forever after.
+  const [address, setAddress] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // Track whether the user has explicitly tapped a language tile this
+  // session. The LanguageContext defaults to "te" so it can render
+  // strings before the user picks, but the visual highlight should
+  // only appear AFTER an explicit tap — never on first load.
+  const [hasPickedLanguage, setHasPickedLanguage] = useState(false);
+  // Whether the user wants to log in (existing account) or register
+  // (new account). Drives whether we show the role picker (register
+  // only) and whether we show "not found / already exists" hints
+  // after the OTP step.
+  const [intent, setIntent] = useState<AuthIntent>(null);
 
   const handleLanguageSelect = async (lang: Language) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setHasPickedLanguage(true);
     await setLanguage(lang);
-    setStep("role");
+    setStep("auth_choice");
+  };
+
+  const handleAuthChoice = (which: "login" | "register") => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setIntent(which);
+    // Login flow skips role selection — the role comes from the
+    // existing user record. Register flow needs the role first
+    // so completeProfile knows whether to create a kirana or wholesaler.
+    setStep(which === "login" ? "phone" : "role");
   };
 
   const handleRoleSelect = (role: UserRole) => {
@@ -94,29 +127,51 @@ export default function LoginScreen() {
       return;
     }
 
+    // After OTP verifies, check whether an account already exists for
+    // this phone. Then branch on `intent`:
+    //   - "login"    : an account MUST exist. If it doesn't, prompt
+    //                  the user to Register instead.
+    //   - "register" : if the account already exists, log them in
+    //                  (forgive the wrong button — better UX than
+    //                  blocking). Otherwise continue to name step.
+    let existingUser: import("@/context/AuthContext").User | null = null;
     try {
-      const { user: existingUser } = await import("@/constants/api").then(m => m.apiGet<{ user: import("@/context/AuthContext").User }>(`/api/users/${encodeURIComponent(phone)}`));
-      if (existingUser) {
-        if (existingUser.role !== selectedRole) {
-          setLoading(false);
-          setError(`This number is registered as a ${existingUser.role}. Please switch roles on the first screen.`);
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-          return;
-        }
-        await loginExistingUser(existingUser);
-        setLoading(false);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        if (selectedRole === "wholesaler") {
-          router.replace("/wholesaler" as any);
-        } else {
-          router.replace("/(tabs)");
-        }
-        return;
-      }
+      const result = await import("@/constants/api").then(m =>
+        m.apiGet<{ user: import("@/context/AuthContext").User }>(`/api/users/${encodeURIComponent(phone)}`),
+      );
+      existingUser = result.user ?? null;
     } catch {
-      // User doesn't exist or network error, proceed to name step
+      // 404 = user doesn't exist. Other errors = network — treat as
+      // "no user" so we don't get stuck.
+      existingUser = null;
     }
 
+    if (existingUser) {
+      // Role mismatch always blocks regardless of intent.
+      if (intent === "register" && existingUser.role !== selectedRole) {
+        setLoading(false);
+        setError(`This number is already registered as a ${existingUser.role}. Tap Login instead.`);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        return;
+      }
+      // Login flow: just use the stored role from the server, ignore
+      // selectedRole (which was never set for the login intent path).
+      await loginExistingUser(existingUser);
+      setLoading(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.replace(existingUser.role === "wholesaler" ? "/wholesaler" as any : "/(tabs)");
+      return;
+    }
+
+    // No existing user. If they tapped Login, they're in the wrong flow.
+    if (intent === "login") {
+      setLoading(false);
+      setError("No account found for this number. Please go back and tap Register instead.");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return;
+    }
+
+    // Register flow + no existing user → continue to name step.
     setLoading(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setStep("name");
@@ -127,8 +182,21 @@ export default function LoginScreen() {
       setError(language === "te" ? "మీ పేరు వేయండి" : language === "hi" ? "अपना नाम डालें" : "Please enter your name");
       return;
     }
+    // Address validation: must be at least 10 chars AND contain at
+    // least one digit OR three alphabetic chars. Catches the
+    // "...... " / "aa" / "1" junk cases without being so strict that
+    // a 3-line Telugu address fails.
+    const addrTrimmed = address.trim();
+    if (!addrTrimmed || addrTrimmed.length < 10 || !/[\w\dऀ-ॿఀ-౿]{3,}/.test(addrTrimmed)) {
+      setError(
+        language === "te" ? "మీ షాప్ చిరునామా వేయండి (కనీసం 10 అక్షరాలు)"
+        : language === "hi" ? "अपना दुकान का पता डालें (कम से कम 10 अक्षर)"
+        : "Please enter your shop address (at least 10 characters)",
+      );
+      return;
+    }
     setLoading(true);
-    await completeProfile(phone, selectedRole, name.trim());
+    await completeProfile(phone, selectedRole, name.trim(), addrTrimmed);
     setLoading(false);
     if (selectedRole === "wholesaler") {
       router.replace("/wholesaler" as any);
@@ -182,29 +250,84 @@ export default function LoginScreen() {
                   style={[
                     styles.langBtn,
                     {
-                      backgroundColor: language === lang.code ? colors.primary : colors.card,
-                      borderColor: language === lang.code ? colors.primary : colors.border,
+                      // Only highlight a tile if the user has explicitly
+                      // tapped one this session. Otherwise we'd auto-show
+                      // the LanguageContext default (Telugu) or whatever
+                      // was last stored in AsyncStorage — both look like
+                      // we're pre-deciding for the user.
+                      backgroundColor: hasPickedLanguage && language === lang.code ? colors.primary : colors.card,
+                      borderColor: hasPickedLanguage && language === lang.code ? colors.primary : colors.border,
                     },
                   ]}
                   onPress={() => handleLanguageSelect(lang.code)}
                   activeOpacity={0.82}
                 >
-                  <Text style={[styles.langNative, { color: language === lang.code ? "#FFF" : colors.foreground }]}>
+                  <Text style={[styles.langNative, { color: hasPickedLanguage && language === lang.code ? "#FFF" : colors.foreground }]}>
                     {lang.native}
                   </Text>
-                  <Text style={[styles.langEnglish, { color: language === lang.code ? "rgba(255,255,255,0.8)" : colors.mutedForeground }]}>
+                  <Text style={[styles.langEnglish, { color: hasPickedLanguage && language === lang.code ? "rgba(255,255,255,0.8)" : colors.mutedForeground }]}>
                     {lang.label}
                   </Text>
-                  {language === lang.code && <Feather name="check" size={20} color="#FFF" />}
+                  {hasPickedLanguage && language === lang.code && <Feather name="check" size={20} color="#FFF" />}
                 </TouchableOpacity>
               </Animated.View>
             ))}
           </Animated.View>
         )}
 
-        {/* ── Step 1: Role ── */}
+        {/* ── Step 0.5: Login or Register ── */}
+        {step === "auth_choice" && (
+          <Animated.View entering={FadeInUp.springify()} style={styles.stepBox}>
+            <Text style={[styles.stepTitle, { color: colors.foreground }]}>
+              {language === "te" ? "మీరు ఇప్పటికే ఖాతా కలిగి ఉన్నారా?" : language === "hi" ? "क्या आपका पहले से अकाउंट है?" : "Welcome to Lasa Hub"}
+            </Text>
+            <Text style={[styles.stepSub, { color: colors.mutedForeground }]}>
+              {language === "te" ? "మీ ఖాతా లేకుంటే 'రిజిస్టర్' నొక్కండి" : language === "hi" ? "नया अकाउंट बनाने के लिए 'रजिस्टर' दबाएं" : "Tap Login if you already have an account, Register if you're new"}
+            </Text>
+            {/* LOGIN — existing user, skips role + name step. Server
+                lookup after OTP decides which dashboard to send them to. */}
+            <TouchableOpacity
+              style={[styles.roleBtn, { backgroundColor: colors.primary }]}
+              onPress={() => handleAuthChoice("login")}
+              activeOpacity={0.85}
+            >
+              <Feather name="log-in" size={28} color="#FFF" />
+              <Text style={styles.roleBtnText}>
+                {language === "te" ? "లాగిన్" : language === "hi" ? "लॉगिन" : "Login"}
+              </Text>
+              <Text style={styles.roleBtnSub}>
+                {language === "te" ? "నాకు ఇప్పటికే ఖాతా ఉంది" : language === "hi" ? "मेरा अकाउंट है" : "I already have an account"}
+              </Text>
+            </TouchableOpacity>
+            {/* REGISTER — new user, goes through role → phone → OTP → name. */}
+            <TouchableOpacity
+              style={[styles.roleBtn, { backgroundColor: colors.accent }]}
+              onPress={() => handleAuthChoice("register")}
+              activeOpacity={0.85}
+            >
+              <Feather name="user-plus" size={28} color="#FFF" />
+              <Text style={styles.roleBtnText}>
+                {language === "te" ? "రిజిస్టర్" : language === "hi" ? "रजिस्टर" : "Register"}
+              </Text>
+              <Text style={styles.roleBtnSub}>
+                {language === "te" ? "నేను కొత్తవాడిని" : language === "hi" ? "मैं नया हूँ" : "I'm new here"}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setStep("language")} style={styles.backLink}>
+              <Feather name="globe" size={14} color={colors.mutedForeground} />
+              <Text style={[styles.backLinkText, { color: colors.mutedForeground }]}>
+                {language === "te" ? "భాష మార్చు" : language === "hi" ? "भाषा बदलें" : "Change language"}
+              </Text>
+            </TouchableOpacity>
+          </Animated.View>
+        )}
+
+        {/* ── Step 1: Role ── (register flow only — login flow skips this) */}
         {step === "role" && (
           <Animated.View entering={FadeInUp.springify()} style={styles.stepBox}>
+            <TouchableOpacity onPress={() => setStep("auth_choice")} style={styles.backBtn}>
+              <Feather name="arrow-left" size={22} color={colors.mutedForeground} />
+            </TouchableOpacity>
             <Text style={[styles.stepTitle, { color: colors.foreground }]}>{t("whoAreYou")}</Text>
             <TouchableOpacity
               style={[styles.roleBtn, { backgroundColor: colors.primary }]}
@@ -236,7 +359,14 @@ export default function LoginScreen() {
         {/* ── Step 2: Phone ── */}
         {step === "phone" && (
           <Animated.View entering={FadeInUp.springify()} style={styles.stepBox}>
-            <TouchableOpacity onPress={() => setStep("role")} style={styles.backBtn}>
+            <TouchableOpacity
+              onPress={() => {
+                // Login flow never visited the role step, so back goes
+                // to the auth choice. Register flow goes back to role.
+                setStep(intent === "login" ? "auth_choice" : "role");
+              }}
+              style={styles.backBtn}
+            >
               <Feather name="arrow-left" size={22} color={colors.mutedForeground} />
             </TouchableOpacity>
             <Text style={[styles.stepTitle, { color: colors.foreground }]}>{t("enterMobile")}</Text>
@@ -248,10 +378,21 @@ export default function LoginScreen() {
                 style={[styles.phoneInput, { color: colors.foreground }]}
                 placeholder="XXXXXXXXXX"
                 placeholderTextColor={colors.mutedForeground}
-                keyboardType="phone-pad"
+                // number-pad blocks the letter row on iOS soft keyboards.
+                // phone-pad still allows letters on some Android variants;
+                // the digitsOnly sanitizer below is the real guarantee.
+                keyboardType="number-pad"
+                inputMode="numeric"
                 maxLength={10}
                 value={phone}
-                onChangeText={(v) => { setPhone(v); setError(""); }}
+                onChangeText={(v) => {
+                  // Strip non-digits and cap at 10 — this is the only place
+                  // the state ever changes, so even paste / autofill / web
+                  // keyboards that ignore keyboardType can't sneak in junk.
+                  const cleaned = digitsOnly(v, 10);
+                  setPhone(cleaned);
+                  setError("");
+                }}
                 autoFocus
               />
             </View>
@@ -355,6 +496,22 @@ export default function LoginScreen() {
               value={name}
               onChangeText={(v) => { setName(v); setError(""); }}
               autoFocus
+              returnKeyType="next"
+            />
+            {/* Shop / delivery address — required during registration.
+                Becomes the default delivery address on every future
+                order so the kirana doesn't retype it. Multi-line so
+                long Telugu / Hindi addresses fit. */}
+            <TextInput
+              style={[styles.nameInput, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.card, minHeight: 80, paddingTop: 14, textAlignVertical: "top" }]}
+              placeholder={language === "te" ? "షాప్ చిరునామా (ఇంటి నంబర్, వీధి, ఊరు, పిన్)"
+                : language === "hi" ? "दुकान का पूरा पता (मकान न, गली, गाँव, पिन)"
+                : "Shop address (house no, street, town, PIN)"}
+              placeholderTextColor={colors.mutedForeground}
+              value={address}
+              onChangeText={(v) => { setAddress(v); setError(""); }}
+              multiline
+              numberOfLines={3}
               returnKeyType="done"
               onSubmitEditing={handleCompleteName}
             />

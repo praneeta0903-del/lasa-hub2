@@ -170,7 +170,7 @@ export default function InventoryScanScreen() {
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>Scan price list</Text>
-        <LasaLogo size={28} /* logo in top-right keeps brand on every screen */ />
+        <LasaLogo size={42} /* bigger circular logo in top-right keeps brand visible on every screen */ />
       </View>
 
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} keyboardShouldPersistTaps="handled">

@@ -12,6 +12,10 @@ export interface User {
   role: UserRole;
   name: string;
   shopName: string;
+  // Shop / delivery address captured at registration. Becomes the
+  // default `deliveryAddress` on the review screen so the kirana
+  // doesn't have to retype it on every order.
+  address?: string;
   trustedWholesalerId?: string;
   wholesalerId?: string;
   lat?: number;
@@ -40,7 +44,7 @@ interface AuthContextType {
   otpDeliveryStatus: OtpDeliveryStatus;
   sendOtp: (phone: string) => Promise<void>;
   verifyOtp: (phone: string, otp: string, role: UserRole) => Promise<boolean>;
-  completeProfile: (phone: string, role: UserRole, name: string) => Promise<void>;
+  completeProfile: (phone: string, role: UserRole, name: string, address?: string) => Promise<void>;
   loginExistingUser: (user: User) => Promise<void>;
   refreshUser: () => Promise<void>;
   logout: () => Promise<void>;
@@ -142,11 +146,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return false;
   }, [generatedOtp]);
 
-  const completeProfile = useCallback(async (phone: string, role: UserRole, name: string) => {
+  const completeProfile = useCallback(async (phone: string, role: UserRole, name: string, address?: string) => {
     const normalizedPhone = normalizePhone(phone);
     const shopName = name.trim()
       ? `${name.trim()}'s ${role === "wholesaler" ? "Wholesale" : "Kirana"}`
       : role === "wholesaler" ? "My Wholesale" : "My Kirana Store";
+    const cleanedAddress = address?.trim() || undefined;
 
     let lat: number | undefined;
     let lng: number | undefined;
@@ -167,6 +172,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       role,
       name: name.trim() || (role === "wholesaler" ? "Wholesaler" : "Shop Owner"),
       shopName,
+      address: cleanedAddress,
       wholesalerId: role === "wholesaler" ? `w_${normalizedPhone}` : undefined,
       lat,
       lng,
@@ -179,6 +185,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         role: base.role,
         name: base.name,
         shopName: base.shopName,
+        address: base.address,
         language: "te",
         trustedWholesalerId: base.trustedWholesalerId,
         wholesalerId: base.wholesalerId,
@@ -188,6 +195,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (serverUser) {
         base.name = serverUser.name ?? base.name;
         base.shopName = serverUser.shopName ?? serverUser.shop_name ?? base.shopName;
+        base.address = serverUser.address ?? base.address;
         base.trustedWholesalerId = serverUser.trustedWholesalerId ?? serverUser.trusted_wholesaler_id ?? base.trustedWholesalerId;
         base.wholesalerId = serverUser.wholesalerId ?? serverUser.wholesaler_id ?? base.wholesalerId;
         base.lat = serverUser.lat ?? base.lat;

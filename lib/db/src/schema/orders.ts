@@ -14,8 +14,16 @@ export const ordersTable = pgTable("orders", {
   wholesalerId: varchar("wholesaler_id", { length: 32 })
     .notNull()
     .references(() => wholesalersTable.id, { onDelete: "restrict" }),
+  // Order lifecycle. The 4-stage user-facing tracker collapses these to:
+  //   pending      → "waiting for wholesaler" (not yet on the tracker)
+  //   confirmed    → "accepted"               (tracker step 1/4)
+  //   packed       → "packed"                 (tracker step 2/4) — NEW
+  //   out_for_delivery → "dispatched"         (tracker step 3/4)
+  //   delivered    → "delivered"              (tracker step 4/4)
+  //   cancelled    → terminal failure         (tracker hidden)
+  // Column is `text` not pg-enum, so adding "packed" needs no migration.
   status: text("status", {
-    enum: ["pending", "confirmed", "out_for_delivery", "delivered", "cancelled"],
+    enum: ["pending", "confirmed", "packed", "out_for_delivery", "delivered", "cancelled"],
   })
     .notNull()
     .default("pending"),

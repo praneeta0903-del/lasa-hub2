@@ -151,7 +151,7 @@ export default function ScanOrderScreen() {
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>{t("takePhotoTitle")}</Text>
-        <LasaLogo size={28} /* logo in top-right keeps brand on every screen */ />
+        <LasaLogo size={42} /* bigger circular logo in top-right keeps brand visible on every screen */ />
       </Animated.View>
 
       <ScrollView
@@ -192,7 +192,16 @@ export default function ScanOrderScreen() {
           </Animated.View>
         ) : (
           <Animated.View entering={FadeIn.springify()} style={styles.analyzeSection}>
-            <Image source={{ uri: imageUri }} style={styles.image} resizeMode="cover" />
+            {/* Full preview: contain mode + 1:1 aspect ratio so the
+                entire handwritten list stays visible regardless of
+                whether the photo was portrait, landscape, or square.
+                Previous setup ("cover" + fixed 220px height) cropped
+                off the bottom of long lists. */}
+            <Image
+              source={{ uri: imageUri }}
+              style={styles.image}
+              resizeMode="contain"
+            />
 
             {isAnalyzing ? (
               <View style={[styles.analyzingBox, { backgroundColor: colors.secondary }]}>
@@ -298,7 +307,12 @@ const styles = StyleSheet.create({
   galleryBtn: { height: 52, borderRadius: 16, borderWidth: 1.5, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
   galleryBtnText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   analyzeSection: { gap: 14 },
-  image: { width: "100%", height: 220, borderRadius: 16 },
+  // Image preview — much taller now (380px instead of 220) so a full
+  // shopping list is visible in one view. Subtle background colour
+  // shows the "letterbox" when contain-mode doesn't fill (e.g. a
+  // landscape photo on a portrait-aspect container). Tap-zoom is
+  // handled by the browser's native gesture on web.
+  image: { width: "100%", height: 380, borderRadius: 16, backgroundColor: "#F5F5F5" },
   analyzingBox: { borderRadius: 16, padding: 28, alignItems: "center", gap: 12 },
   analyzingText: { fontSize: 17, fontFamily: "Inter_600SemiBold" },
   analyzingSubText: { fontSize: 13, fontFamily: "Inter_400Regular" },

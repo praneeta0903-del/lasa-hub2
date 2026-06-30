@@ -10,6 +10,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
 import { confirm } from "@/utils/confirm";
 import { useWholesalerStrings } from "@/hooks/useWholesalerStrings";
+import { LasaLogo } from "@/components/LasaLogo";
 
 type InventoryItem = {
   id: number;
@@ -195,7 +196,10 @@ export default function InventoryScreen() {
     <View style={[styles.root, { backgroundColor: colors.background, paddingTop: insets.top + 12 }]}>
       <View style={styles.header}>
         <TouchableOpacity onPress={goBackSafe}><Feather name="arrow-left" size={22} color={colors.foreground} /></TouchableOpacity>
-        <Text style={[styles.title, { color: colors.foreground }]}>{s("myStock")}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <LasaLogo size={38} />
+          <Text style={[styles.title, { color: colors.foreground }]}>{s("myStock")}</Text>
+        </View>
         <TouchableOpacity onPress={load}><Feather name="refresh-cw" size={18} color={colors.primary} /></TouchableOpacity>
       </View>
 

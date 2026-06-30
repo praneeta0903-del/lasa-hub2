@@ -49,7 +49,13 @@ export default function ReviewScreen() {
 
   const [items, setItems] = useState<OrderItem[]>([]);
   const [notes, setNotes] = useState("");
-  const [deliveryAddress, setDeliveryAddress] = useState(user?.shopName ?? "");
+  // Default delivery address comes from the address captured at
+  // registration (user.address). Falls back to shopName then empty
+  // so the field is never undefined.
+  const [deliveryAddress, setDeliveryAddress] = useState(user?.address ?? user?.shopName ?? "");
+  // Track whether the user has overridden the default address this
+  // session — used to show "Add new" vs "Edit default" affordance.
+  const [addressIsCustom, setAddressIsCustom] = useState(false);
   const [isSending, setIsSending] = useState(false);
 
   // Wholesaler selection
@@ -71,6 +77,19 @@ export default function ReviewScreen() {
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editQtyValue, setEditQtyValue] = useState("");
   const [editNameValue, setEditNameValue] = useState("");
+  // Wholesaler search query — filters the supplier-picker modal by
+  // shop name. Useful once the kirana has 10+ suppliers to choose from.
+  const [wsSearch, setWsSearch] = useState("");
+  // Memoised filter result so we don't re-filter on every render.
+  const filteredWholesalers = React.useMemo(() => {
+    const q = wsSearch.trim().toLowerCase();
+    if (!q) return wholesalers;
+    return wholesalers.filter(w =>
+      w.name.toLowerCase().includes(q) ||
+      (w.location ?? "").toLowerCase().includes(q) ||
+      (w.ownerName ?? "").toLowerCase().includes(q),
+    );
+  }, [wholesalers, wsSearch]);
 
   // Add item
   const [newItemName, setNewItemName] = useState("");
@@ -200,8 +219,14 @@ export default function ReviewScreen() {
       tell("Pick a supplier first", "Tap 'Select this Supplier' on the list above.");
       return;
     }
-    if (!deliveryAddress.trim()) {
+    // Address validation — reject obvious junk (too short, no alphanumerics).
+    const addr = deliveryAddress.trim();
+    if (!addr) {
       tell("Delivery address is required", "Add your shop address so the supplier knows where to deliver.");
+      return;
+    }
+    if (addr.length < 10 || !/[\w\dऀ-ॿఀ-౿]{3,}/.test(addr)) {
+      tell("Address looks too short", "Please enter the full address — house no, street, town, and PIN. At least 10 characters.");
       return;
     }
     if (minOrderViolations.length > 0) {
@@ -216,7 +241,11 @@ export default function ReviewScreen() {
     setIsSending(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
-      await createOrder({
+      // Capture the created order so we can hand its ID to /order-sent
+      // for a real invoice-style confirmation (instead of the generic
+      // "Thank You" page that knew nothing about what the user just
+      // ordered).
+      const created = await createOrder({
         kiranaPhone: user.phone,
         kiranaName: user?.name ?? "Shop Owner",
         shopName: user?.shopName ?? "My Store",
@@ -227,7 +256,7 @@ export default function ReviewScreen() {
         deliveryAddress,
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace("/order-sent" as any);
+      router.replace(`/order-sent?orderId=${encodeURIComponent(created.id)}` as any);
     } catch (err: any) {
       console.error("[send-order] createOrder failed", err);
       tell(
@@ -288,7 +317,7 @@ export default function ReviewScreen() {
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>{t("reviewTitle")}</Text>
-        <LasaLogo size={28} /* logo in top-right keeps brand on every screen */ />
+        <LasaLogo size={42} /* bigger circular logo in top-right keeps brand visible on every screen */ />
       </Animated.View>
 
       <ScrollView
@@ -443,51 +472,84 @@ export default function ReviewScreen() {
               // Live stock state for this item at the selected supplier.
               const s = itemStocks[i];
               const unit = s?.catalog?.unit ?? "";
-              // Parse the kirana's own quantity to extract the unit they
-              // typed/spoke. Used for the "wrong_unit" message ("shop sells
-              // by kg, not by pack") so the kirana knows what to change.
               const orderedUnit = (() => {
                 const m = String(item.quantity ?? "").match(/[a-zA-Zఅ-౿अ-ॿ]+\s*$/);
                 return m ? m[0].trim() : "";
               })();
-              const stateColor =
-                s?.state === "in_stock" ? colors.available :
-                (s?.state === "low_stock" || s?.state === "below_min_order" || s?.state === "wrong_unit") ? "#F59E0B" :
-                colors.unavailable;
-              // Localized state label — honors the kirana's selected
-              // language (English / Hindi / Telugu) and uses the qty
-              // already converted to the catalog's unit.
+              // Three buckets of state → one of three colors. Used both
+              // for the tinted row background AND for the line-total
+              // text accent so the visual story stays consistent.
+              const isAvailable = s?.state === "in_stock";
+              const isPartial = s?.state === "low_stock" || s?.state === "below_min_order" || s?.state === "wrong_unit";
+              const stateColor = isAvailable ? colors.available
+                : isPartial ? "#F59E0B"
+                : colors.unavailable;
+              // Whole-row tint (vs the old standalone dot) — soft 14%
+              // alpha so text stays readable. Border is the full color
+              // for visual edge definition. Avoids needing the dot
+              // entirely and is a much louder availability signal at
+              // a glance, which is what the user asked for.
+              const rowTint = stateColor + "1F"; // ~12% alpha hex
+              const rowBorder = stateColor + "66"; // ~40% alpha hex
               const stateLabel = s
                 ? kiranaStockLabel(
                     (language as "en" | "te" | "hi") ?? "en",
                     { state: s.state, onHand: s.onHand, needed: s.needed, minOrderQty: s.minOrderQty, unit, orderedUnit },
                   )
                 : "";
-              // For not_carried items, see if there's a similar item the
-              // shop DOES stock — show as a suggestion so the kirana can
-              // pick the specific brand instead of getting auto-substituted.
-              // (We do NOT show suggestions for wrong_unit because in that
-              // case the item IS found, just in a different unit — the
-              // message already tells the user what to fix.)
+              // Per-item line economics. Uses the qty ALREADY converted
+              // to the catalog's base unit (so "500 gm" → 0.5 against a
+              // kg-based catalog) for correct math regardless of what
+              // the kirana typed.
+              const linePrice = s?.catalog?.pricePerUnit ?? 0;
+              const lineNeeded = s?.needed ?? 0;
+              const lineSubtotal = isAvailable || isPartial ? linePrice * lineNeeded : 0;
+              const lineTaxPct = s?.catalog?.taxPercent ?? selectedWholesaler?.defaultTaxPercent ?? 0;
+              const lineTax = lineSubtotal * (lineTaxPct / 100);
+              const lineTotal = Math.round(lineSubtotal + lineTax);
+              // "Did you mean" suggestions still appear for not_carried
+              // items — the user explicitly asked us to keep this feature.
               const suggestions = s?.state === "not_carried" && selectedWholesaler
                 ? findSimilarCatalogItems(selectedWholesaler.catalog, item.name, 3)
                 : [];
               return (
-                <View style={[styles.itemCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                  <View style={[styles.stockDot, { backgroundColor: stateColor }]} />
+                <View style={[styles.itemCard, { backgroundColor: rowTint, borderColor: rowBorder, borderLeftWidth: 4, borderLeftColor: stateColor }]}>
                   <View style={styles.itemCenter}>
-                    <Text style={[styles.itemName, { color: colors.foreground }]}>{getItemDisplayName(item)}</Text>
-                    <Text style={[styles.itemQty, { color: colors.mutedForeground }]}>
-                      {item.quantity}
-                      {s?.catalog?.pricePerUnit != null ? `  ·  ₹${s.catalog.pricePerUnit}/${s.catalog.unit}` : ""}
-                    </Text>
-                    {/* Always show min-order info when the shop carries this item so the kirana never wonders why a quantity is OK or not */}
-                    {s?.catalog && s.minOrderQty > 0 && (
+                    {/* THREE-COLUMN HEADER: name | unit-price+tax | line total */}
+                    <View style={styles.itemRowTop}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.itemName, { color: colors.foreground }]}>{getItemDisplayName(item)}</Text>
+                        <Text style={[styles.itemQty, { color: colors.mutedForeground }]}>{item.quantity}</Text>
+                      </View>
+                      {s?.catalog?.pricePerUnit != null && (
+                        <View style={{ alignItems: "flex-end", marginRight: 12 }}>
+                          <Text style={[styles.itemPriceUnit, { color: colors.foreground }]}>
+                            ₹{linePrice}/{s.catalog.unit}
+                          </Text>
+                          {lineTaxPct > 0 && (
+                            <Text style={[styles.itemTaxPct, { color: colors.mutedForeground }]}>
+                              +{lineTaxPct}% tax
+                            </Text>
+                          )}
+                        </View>
+                      )}
+                      {(isAvailable || isPartial) && lineTotal > 0 && (
+                        <View style={{ alignItems: "flex-end" }}>
+                          <Text style={[styles.itemLineTotal, { color: stateColor }]}>₹{lineTotal}</Text>
+                        </View>
+                      )}
+                    </View>
+                    {/* Min-order hint + state label, compact one-liners */}
+                    {s?.catalog && s.minOrderQty > 0 && !isAvailable && (
                       <Text style={[styles.minOrderHint, { color: colors.mutedForeground }]}>
-                        min order: {s.minOrderQty} {s.catalog.unit} · you can order any amount from this up
+                        min order: {s.minOrderQty} {s.catalog.unit}
                       </Text>
                     )}
-                    <Text style={[styles.stockReason, { color: stateColor }]}>{stateLabel}</Text>
+                    {!isAvailable && (
+                      <Text style={[styles.stockReason, { color: stateColor }]}>{stateLabel}</Text>
+                    )}
+                    {/* Did-you-mean — kept as-is, it's the user's
+                        favourite feature on this screen. */}
                     {suggestions.length > 0 && (
                       <View style={styles.suggestionsRow}>
                         <Text style={[styles.suggestionsLabel, { color: colors.mutedForeground }]}>
@@ -579,13 +641,80 @@ export default function ReviewScreen() {
           onChangeText={setNotes}
         />
         <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Delivery Address</Text>
+        {/* Two visible options the user can tap — the saved default
+            (from registration) and an "Add new address" chip. Whichever
+            is selected gets the primary color highlight. Editable text
+            box appears below — pre-filled with the default, fully
+            editable when "Add new" is selected. */}
+        {user?.address ? (
+          <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+            <TouchableOpacity
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setDeliveryAddress(user.address ?? "");
+                setAddressIsCustom(false);
+              }}
+              style={[
+                styles.addrChip,
+                {
+                  borderColor: !addressIsCustom ? colors.primary : colors.border,
+                  backgroundColor: !addressIsCustom ? colors.primary + "12" : colors.card,
+                },
+              ]}
+            >
+              <Feather name="home" size={14} color={!addressIsCustom ? colors.primary : colors.mutedForeground} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.addrChipLabel, { color: !addressIsCustom ? colors.primary : colors.foreground }]}>
+                  Default (from profile)
+                </Text>
+                <Text style={[styles.addrChipPreview, { color: colors.mutedForeground }]} numberOfLines={1}>
+                  {user.address}
+                </Text>
+              </View>
+              {!addressIsCustom && <Feather name="check" size={16} color={colors.primary} />}
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setDeliveryAddress("");
+                setAddressIsCustom(true);
+              }}
+              style={[
+                styles.addrChip,
+                {
+                  borderColor: addressIsCustom ? colors.primary : colors.border,
+                  backgroundColor: addressIsCustom ? colors.primary + "12" : colors.card,
+                },
+              ]}
+            >
+              <Feather name="plus-circle" size={14} color={addressIsCustom ? colors.primary : colors.mutedForeground} />
+              <Text style={[styles.addrChipLabel, { color: addressIsCustom ? colors.primary : colors.foreground }]}>
+                Add new address
+              </Text>
+              {addressIsCustom && <Feather name="check" size={16} color={colors.primary} />}
+            </TouchableOpacity>
+          </View>
+        ) : (
+          // No saved default address yet — gentle hint to add one to
+          // profile next time so they don't have to retype on every order.
+          <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>
+            Tip: Add a shop address in your profile so it auto-fills on every order.
+          </Text>
+        )}
         <TextInput
-          style={[styles.notesInput, { borderColor: colors.border, backgroundColor: colors.card, color: colors.foreground }]}
-          placeholder="Enter delivery address"
+          style={[styles.notesInput, { borderColor: addressIsCustom ? colors.primary : colors.border, backgroundColor: colors.card, color: colors.foreground }]}
+          placeholder="House no, street, town, PIN"
           placeholderTextColor={colors.mutedForeground}
           multiline
           value={deliveryAddress}
-          onChangeText={setDeliveryAddress}
+          onChangeText={(v) => {
+            setDeliveryAddress(v);
+            if (user?.address && v !== user.address) setAddressIsCustom(true);
+          }}
+          // Lock the textbox when showing the default so the user
+          // doesn't accidentally edit their saved address. Tap the
+          // "Add new" chip to start typing.
+          editable={addressIsCustom || !user?.address}
         />
 
         {/* Estimated bill — computed from the selected supplier's catalog. */}
@@ -648,8 +777,34 @@ export default function ReviewScreen() {
           <View style={[styles.modalSheet, { backgroundColor: colors.background }]}>
             <View style={[styles.modalHandle, { backgroundColor: colors.border }]} />
             <Text style={[styles.modalTitle, { color: colors.foreground }]}>{t("chooseSupplier")}</Text>
+            {/* Search box — filters by shop name / location / owner.
+                Auto-clears when the modal closes (intentional: most
+                kiranas have a small enough supplier list that
+                persisting the filter would be confusing). */}
+            <View style={[styles.wsSearchWrap, { borderColor: colors.border, backgroundColor: colors.card }]}>
+              <Feather name="search" size={16} color={colors.mutedForeground} />
+              <TextInput
+                style={[styles.wsSearchInput, { color: colors.foreground }]}
+                placeholder={language === "te" ? "షాప్ పేరు వెతకండి…" : language === "hi" ? "दुकान का नाम खोजें…" : "Search by shop or area…"}
+                placeholderTextColor={colors.mutedForeground}
+                value={wsSearch}
+                onChangeText={setWsSearch}
+                autoCorrect={false}
+                returnKeyType="search"
+              />
+              {wsSearch.length > 0 && (
+                <TouchableOpacity onPress={() => setWsSearch("")} style={{ padding: 4 }}>
+                  <Feather name="x-circle" size={16} color={colors.mutedForeground} />
+                </TouchableOpacity>
+              )}
+            </View>
+            {filteredWholesalers.length === 0 && (
+              <Text style={{ color: colors.mutedForeground, textAlign: "center", paddingVertical: 24 }}>
+                {language === "te" ? "ఏ షాప్ కనుగొనబడలేదు" : language === "hi" ? "कोई दुकान नहीं मिली" : "No suppliers match your search"}
+              </Text>
+            )}
             <ScrollView showsVerticalScrollIndicator={false}>
-              {wholesalers.map(ws => (
+              {filteredWholesalers.map(ws => (
                 <TouchableOpacity
                   key={ws.id}
                   style={[
@@ -746,6 +901,36 @@ export default function ReviewScreen() {
                         <Text style={[styles.noStockLabel, { color: colors.unavailable }]}>{t("noStock")}</Text>
                       )}
                     </View>
+                    {/* + Add — drops the item into the order at the shop's
+                        minimum-order quantity. Saves the kirana from
+                        manually typing the name. Disabled if the shop
+                        doesn't have stock. */}
+                    {cat.available && (
+                      <TouchableOpacity
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          // Switch selected supplier to this catalog's
+                          // wholesaler if it's not already selected, so
+                          // the order resolves stock against the right shop.
+                          setSelectedWholesaler(catalogWholesaler);
+                          setItems(prev => [
+                            ...prev,
+                            {
+                              name: cat.name,
+                              nameTe: cat.nameTe ?? "",
+                              nameHi: cat.nameHi ?? "",
+                              quantity: `${cat.minOrderQty} ${cat.unit}`,
+                              available: true,
+                            },
+                          ]);
+                          setShowCatalogModal(false);
+                        }}
+                        style={[styles.addToOrderBtn, { backgroundColor: colors.primary }]}
+                      >
+                        <Feather name="plus" size={16} color="#FFF" />
+                        <Text style={styles.addToOrderBtnText}>Add</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                 );
               })}
@@ -824,6 +1009,12 @@ const styles = StyleSheet.create({
   // Items
   sectionTitle: { fontSize: 16, fontFamily: "Inter_700Bold", marginTop: 4 },
   itemCard: { flexDirection: "row", alignItems: "center", borderRadius: 14, borderWidth: 1, padding: 14, gap: 10, marginBottom: 4 },
+  // Top row of an item card — flexes name, unit-price, and line-total
+  // into a single row so the kirana sees the line economics at a glance.
+  itemRowTop: { flexDirection: "row", alignItems: "flex-start" },
+  itemPriceUnit: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  itemTaxPct: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 1 },
+  itemLineTotal: { fontSize: 16, fontFamily: "Inter_700Bold" },
   stockDot: { width: 11, height: 11, borderRadius: 6 },
   itemCenter: { flex: 1 },
   itemName: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
@@ -890,6 +1081,18 @@ const styles = StyleSheet.create({
   catOfferText: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
   catMoq: { fontSize: 11, fontFamily: "Inter_400Regular" },
   catPriceBlock: { alignItems: "flex-end" },
+  // Compact + Add button at the end of each price-list row.
+  addToOrderBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, marginLeft: 8 },
+  addToOrderBtnText: { color: "#FFF", fontFamily: "Inter_700Bold", fontSize: 12 },
+  // Address picker chips — two side-by-side rows showing the saved
+  // default + an "Add new" option. Each chip is full-width on its
+  // own row for clarity (flexBasis: 100%).
+  addrChip: { flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: 12, borderWidth: 1.5, flexBasis: "100%" },
+  addrChipLabel: { fontFamily: "Inter_700Bold", fontSize: 13 },
+  addrChipPreview: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 2 },
+  // Search bar at the top of the supplier-picker modal.
+  wsSearchWrap: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, height: 44, marginBottom: 10 },
+  wsSearchInput: { flex: 1, fontSize: 14, fontFamily: "Inter_500Medium" },
   catPrice: { fontSize: 16, fontFamily: "Inter_700Bold" },
   catUnit: { fontSize: 11, fontFamily: "Inter_400Regular" },
   noStockLabel: { fontSize: 11, fontFamily: "Inter_600SemiBold", marginTop: 2 },

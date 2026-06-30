@@ -2,7 +2,10 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { apiGet, apiPatch, apiPost, getUserHeaders } from "@/constants/api";
 import { useAuth } from "./AuthContext";
 
-export type OrderStatus = "pending" | "confirmed" | "out_for_delivery" | "delivered" | "cancelled";
+// Order lifecycle stages — mirrors lib/db/src/schema/orders.ts. The
+// "packed" stage was added so the kirana-facing tracker has 4 visual
+// stops (accepted → packed → dispatched → delivered).
+export type OrderStatus = "pending" | "confirmed" | "packed" | "out_for_delivery" | "delivered" | "cancelled";
 
 export interface OrderItem {
   name: string;

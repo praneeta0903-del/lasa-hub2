@@ -34,7 +34,10 @@ function neededInCatalogUnit(orderQty: string, catalogUnit: string | null | unde
 
 const router = Router();
 
-type Status = "pending" | "confirmed" | "out_for_delivery" | "delivered" | "cancelled";
+// Mirrors lib/db/src/schema/orders.ts. "packed" was added as an
+// intermediate stage between "confirmed" and "out_for_delivery" so
+// the kirana-facing tracker has 4 visual stops.
+type Status = "pending" | "confirmed" | "packed" | "out_for_delivery" | "delivered" | "cancelled";
 type Role = "kirana" | "wholesaler" | "admin";
 
 function normalizePhone(input: string): string {
@@ -167,6 +170,20 @@ router.post("/orders", async (req, res) => {
       .onConflictDoNothing({ target: usersTable.phone });
 
     const id = `ord_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    // Human-readable invoice number that customers can quote over phone:
+    //   LH-YYMMDD-XXXX  (e.g. LH-260621-A4F2)
+    // Date prefix sorts chronologically; 4-hex tail prevents collisions
+    // within the same day. Saved on the row, surfaced in API responses,
+    // and shown on the order-sent screen and SMS.
+    const now = new Date();
+    const datePrefix = [
+      String(now.getUTCFullYear()).slice(-2),
+      String(now.getUTCMonth() + 1).padStart(2, "0"),
+      String(now.getUTCDate()).padStart(2, "0"),
+    ].join("");
+    const tail = Math.random().toString(16).slice(2, 6).toUpperCase().padStart(4, "0");
+    const invoiceNumber = `LH-${datePrefix}-${tail}`;
+
     const [order] = await db
       .insert(ordersTable)
       .values({
@@ -176,6 +193,7 @@ router.post("/orders", async (req, res) => {
         shopName: body.shopName,
         wholesalerId: body.wholesalerId,
         status: "pending",
+        invoiceNumber,
         notes: body.notes ?? null,
         deliveryAddress: body.deliveryAddress ?? null,
         toAddress: body.deliveryAddress ?? null,
@@ -482,6 +500,12 @@ router.patch("/orders/:id", async (req, res) => {
             : "";
           const msg = body.status === "confirmed"
             ? `*Lasa Hub: order confirmed*\nDelivery: ${body.deliveryTime ?? "TBD"}\nInvoice: ${body.invoiceNumber ?? row.id}\nTotal: ₹${body.totalAmount ?? row.totalAmount ?? "-"}\n\nItems being delivered:\n${itemList}${partialNote}${skippedNote}`
+            : body.status === "packed"
+            // New "packed" stage — fires the moment the wholesaler taps
+            // "Mark as Packed", before the delivery vehicle leaves.
+            // Lets the kirana know the order is ready and progresses
+            // their visual tracker to step 2/4.
+            ? `*Lasa Hub: order packed*\nYour order is packed and waiting for dispatch.\n\nItems:\n${itemList}${partialNote}${skippedNote}`
             : body.status === "out_for_delivery"
             ? `*Lasa Hub: order out for delivery*\n\nItems on the way:\n${itemList}${partialNote}${skippedNote}`
             : body.status === "delivered"

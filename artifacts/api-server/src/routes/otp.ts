@@ -184,6 +184,8 @@ router.post("/users/upsert", async (req, res) => {
     const body = req.body as {
       phone: string; role: "kirana" | "wholesaler";
       name: string; shopName?: string;
+      // Shop / delivery address captured at registration.
+      address?: string;
       language?: "en" | "hi" | "te";
       trustedWholesalerId?: string;
       wholesalerId?: string;
@@ -254,6 +256,7 @@ router.post("/users/upsert", async (req, res) => {
       role: body.role,
       name: body.name,
       shopName,
+      address: body.address?.trim() || null,
       language: body.language ?? "te",
       trustedWholesalerId: body.trustedWholesalerId ?? null,
       wholesalerId,

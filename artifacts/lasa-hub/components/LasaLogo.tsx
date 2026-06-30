@@ -39,27 +39,42 @@ type Props = {
 };
 
 export function LasaLogo({ size = 96, outline = false, style }: Props) {
-  const dim = { width: size, height: size };
+  const dim = { width: size, height: size, borderRadius: size / 2 };
 
   if (LOGO_PNG) {
-    // The artwork file is ALREADY a circle (with a sticker peel curl
-    // on the side) so we do NOT clip it to a perfect circle here —
-    // that would cut off the peel curl and leave the JPEG's white
-    // padding visible inside the crop as a halo.
-    //
-    // Instead we use resizeMode="contain" and let the white JPEG
-    // padding blend invisibly with the white app background. The
-    // sticker reads as its true shape (curl included), and there's
-    // no double-ring artifact.
-    //
-    // The `outline` ring + drop shadow are deliberately omitted in
-    // this branch — they were designed for the abstract fallback
-    // circle. The real sticker has its own visual edge already.
+    // Real artwork: clipped to a perfect circle (overflow:hidden +
+    // borderRadius = size/2) so the JPEG's white padding never bleeds
+    // out as a visible square. resizeMode="cover" + a tiny scale-up
+    // ensures the red artwork fills the circle edge-to-edge — the
+    // small peel-curl detail gets sacrificed to give a clean circular
+    // icon, which is what the user explicitly asked for ("circular and
+    // a bit bigger and visible").
+    const ring = outline
+      ? { borderWidth: Math.max(2, size * 0.05), borderColor: "#FFFFFF" }
+      : undefined;
     return (
-      <View style={[dim, style]} accessibilityLabel="Lasa Hub">
+      <View
+        style={[
+          styles.shadow,
+          dim,
+          ring,
+          // overflow:hidden on the WRAPPER is what actually clips the
+          // Image inside to a circle. Without this the image just sits
+          // square on top of the rounded view.
+          { overflow: "hidden", alignItems: "center", justifyContent: "center" },
+          style,
+        ]}
+        accessibilityLabel="Lasa Hub"
+      >
         <Image
           source={LOGO_PNG as any}
-          style={[dim as StyleProp<ImageStyle>, { resizeMode: "contain" }]}
+          style={[
+            // Width and height bigger than the container, with cover
+            // mode, so the artwork fills past the circle's edge instead
+            // of leaving white margins. 1.15x is enough to eat the JPEG
+            // padding without losing the central "LISA" mark.
+            { width: size * 1.15, height: size * 1.15, resizeMode: "cover" } as StyleProp<ImageStyle>,
+          ]}
         />
       </View>
     );

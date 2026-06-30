@@ -9,6 +9,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
 import { useWholesalerStrings } from "@/hooks/useWholesalerStrings";
 import { LasaLogo } from "@/components/LasaLogo";
+import { sanitizeGstin, sanitizeFssai, sanitizeDecimal } from "@/utils/inputSanitizers";
 
 type Settings = {
   id: string;
@@ -90,7 +91,7 @@ export default function WholesalerSettings() {
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>{s("shopSettings")}</Text>
-        <LasaLogo size={28} /* logo in top-right keeps brand on every screen */ />
+        <LasaLogo size={42} /* bigger circular logo in top-right keeps brand visible on every screen */ />
       </View>
 
       <WholesalerTabBar />
@@ -128,8 +129,11 @@ export default function WholesalerSettings() {
           </Section>
 
           <Section title={s("identity")}>
-            <Field label={s("gstin")} value={settings.gstin ?? ""} onChange={(v) => setSettings((p) => ({ ...p, gstin: v.toUpperCase() }))} colors={colors} />
-            <Field label={s("fssaiNumber")} value={settings.fssai ?? ""} onChange={(v) => setSettings((p) => ({ ...p, fssai: v }))} colors={colors} />
+            {/* GSTIN: uppercase alphanumeric only, max 15 chars.
+                Sanitizer kills any junk paste at the input layer. */}
+            <Field label={s("gstin")} value={settings.gstin ?? ""} onChange={(v) => setSettings((p) => ({ ...p, gstin: sanitizeGstin(v) }))} colors={colors} />
+            {/* FSSAI: numeric only, exactly 14 digits. */}
+            <Field label={s("fssaiNumber")} value={settings.fssai ?? ""} onChange={(v) => setSettings((p) => ({ ...p, fssai: sanitizeFssai(v) }))} colors={colors} />
             <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>
               {s("adminVerifies")}
             </Text>
@@ -142,8 +146,18 @@ export default function WholesalerSettings() {
                 <TextInput
                   style={[styles.input, { borderColor: colors.border, color: colors.foreground }]}
                   value={String(settings.defaultTaxPercent ?? "")}
-                  onChangeText={(v) => setSettings((p) => ({ ...p, defaultTaxPercent: Number(v) || 0 }))}
+                  onChangeText={(v) => {
+                    // Allow digits + one decimal point; cap at sensible
+                    // length so a stray paste can't create 99999%.
+                    const cleaned = sanitizeDecimal(v, 4);
+                    const num = Number(cleaned) || 0;
+                    // GST cap in India is 28% — clamp visually so a
+                    // typo doesn't accidentally save tax = 280%.
+                    setSettings((p) => ({ ...p, defaultTaxPercent: Math.min(num, 50) }));
+                  }}
                   keyboardType="decimal-pad"
+                  inputMode="decimal"
+                  maxLength={5}
                   placeholder="0"
                   placeholderTextColor={colors.mutedForeground}
                 />
@@ -153,8 +167,16 @@ export default function WholesalerSettings() {
                 <TextInput
                   style={[styles.input, { borderColor: colors.border, color: colors.foreground }]}
                   value={String(settings.defaultDiscountPercent ?? "")}
-                  onChangeText={(v) => setSettings((p) => ({ ...p, defaultDiscountPercent: Number(v) || 0 }))}
+                  onChangeText={(v) => {
+                    const cleaned = sanitizeDecimal(v, 4);
+                    const num = Number(cleaned) || 0;
+                    // Discount capped at 99% so you can't accidentally
+                    // give it all away.
+                    setSettings((p) => ({ ...p, defaultDiscountPercent: Math.min(num, 99) }));
+                  }}
                   keyboardType="decimal-pad"
+                  inputMode="decimal"
+                  maxLength={5}
                   placeholder="0"
                   placeholderTextColor={colors.mutedForeground}
                 />
